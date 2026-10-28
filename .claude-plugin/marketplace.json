@@ -1,0 +1,5 @@
+{
+  "name": "job-progress",
+  "owner": { "name": "job-progress" },
+  "plugins": [{ "name": "job-progress", "source": "./" }]
+}

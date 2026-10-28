@@ -1,0 +1,38 @@
+export type JobKind = 'test' | 'render'
+
+export type JobStatus = 'running' | 'passed' | 'failed' | 'stopped'
+
+export type Job = {
+  id: string
+  kind: JobKind
+  /** The command as the model wrote it, cut for display. */
+  label: string
+  /** Where the wrapped command tees its output; polled while it runs. */
+  file: string
+  /** Key of this command in the stored run history. */
+  signature: string
+  startedAt: number
+  endedAt?: number
+  elapsedMs: number
+  status: JobStatus
+  /** 0-100, or null while nothing in the output says how far along it is. */
+  percent: number | null
+  /** True when `percent` is a guess from how long the last run took. */
+  isEstimate: boolean
+  phase: string
+  done: number
+  total: number | null
+  failed: number
+  unit: string
+  lastLine: string
+  /** How long the previous run of the same command took, if one is stored. */
+  expectedMs: number | null
+  /** What the previous run counted, to give a test run a total up front. */
+  expectedTotal: number | null
+}
+
+declare module 'claude-code' {
+  interface PluginState {
+    'job-progress': { jobs: Shaped<Job[]> }
+  }
+}

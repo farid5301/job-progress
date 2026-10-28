@@ -46,7 +46,8 @@ test('a test run is wrapped, followed to its end, and shown on every surface', a
     const ui = await $.ui.mount({ ...PANE, surface })
 
     expect((await ui.find({ type: 'Text', text: /Tests/ }))?.text).toContain('npm test')
-    expect((await ui.find({ type: 'Text', text: /██████/ }))?.text).toContain('100%')
+    expect((await ui.find({ type: 'Text', text: /🎉/ }))?.text).toContain('🎉')
+    expect((await ui.find({ type: 'Text', text: /100%/ }))?.text).toContain('100%')
     await ui.unmount()
   }
 })

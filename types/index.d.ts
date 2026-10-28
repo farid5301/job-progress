@@ -29,6 +29,12 @@ export type Job = {
   expectedMs: number | null
   /** What the previous run counted, to give a test run a total up front. */
   expectedTotal: number | null
+  /** Where `expectedMs` came from: this exact command, a similar one, or the person. */
+  expectedFrom: 'same' | 'similar' | 'you' | null
+  /** Key of this command's tool and folder in the stored run history. */
+  family: string
+  /** Name of the scene drawn for this job's track. */
+  theme: string
 }
 
 declare module 'claude-code' {

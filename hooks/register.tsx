@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 
 import type { Job, JobStatus } from '../types'
+import { clock, family, fmt, isTheme, left, parseDuration, pickTheme, quip, themeNames, track as scene } from './fun'
 import { DONE, detect, exitCode, parse } from './parse'
 
 const PANE = 'job-progress'
@@ -11,55 +12,26 @@ const MAX_RUN_MS = 3 * 60 * 60 * 1000
 // Change the tag when a job's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const jobs = atom({ plugin: 'job-progress', key: 'jobs' } as const, [], {
-  shape: 'jobs-1',
+  shape: 'jobs-2',
 })
 
 type History = Record<string, { durationMs: number; total: number | null }>
 type Settled = Exclude<JobStatus, 'running'>
-
-const fmt = (ms: number): string => {
-  const s = Math.max(0, Math.round(ms / 1000))
-
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
 
 const title = (job: Job): string => (job.kind === 'test' ? 'Tests' : 'Render')
 
 const pct = (job: Job): string =>
   job.percent === null ? '' : `${job.isEstimate ? '~' : ''}${Math.round(job.percent)}%`
 
-const eta = (job: Job): number | undefined => {
-  if (job.status !== 'running') {
-    return undefined
-  }
-  if (job.isEstimate && job.expectedMs !== null) {
-    return Math.max(0, job.expectedMs - job.elapsedMs)
-  }
-  if (job.percent !== null && job.percent >= 3 && job.elapsedMs > 3000) {
-    return (job.elapsedMs * (100 - job.percent)) / job.percent
-  }
-  if (job.expectedMs !== null) {
-    return Math.max(0, job.expectedMs - job.elapsedMs)
+// The line that says how long is left, and when that lands on the clock.
+const remaining = (job: Job): string => {
+  const eta = left(job)
+
+  if (eta === undefined) {
+    return job.status === 'running' ? 'no time estimate yet, the next run will have one' : ''
   }
 
-  return undefined
-}
-
-const bar = (job: Job, width: number): string => {
-  if (job.status === 'passed') {
-    return '█'.repeat(width)
-  }
-  if (job.percent === null) {
-    // Nothing says how far along it is: a block sweeps back and forth.
-    const span = Math.max(1, width - 4)
-    const at = Math.floor(job.elapsedMs / 300) % (span * 2)
-    const pos = at <= span ? at : span * 2 - at
-
-    return '░'.repeat(pos) + '████' + '░'.repeat(Math.max(0, width - 4 - pos))
-  }
-  const filled = Math.round((width * job.percent) / 100)
-
-  return '█'.repeat(filled) + '░'.repeat(width - filled)
+  return eta.ms === null ? eta.text : `${eta.text} · done around ${clock(job.startedAt + job.elapsedMs + eta.ms)}`
 }
 
 const color = (job: Job): string =>
@@ -88,10 +60,6 @@ const detail = (job: Job): string => {
 
   if (job.status === 'running') {
     parts.push(job.phase, `${fmt(job.elapsedMs)} elapsed`)
-    const left = eta(job)
-    if (left !== undefined) {
-      parts.push(`~${fmt(left)} left`)
-    }
   } else {
     parts.push(`took ${fmt(job.elapsedMs)}`)
   }
@@ -160,12 +128,14 @@ const settle = async ($: EngineInterface, id: string, status: Settled): Promise<
 
   if (status === 'passed') {
     const history = ((await $.store.get('history')) ?? {}) as History
-    history[job.signature] = {
-      durationMs: elapsedMs,
-      total: job.total ?? (job.done > 0 ? job.done : null),
-    }
+    const entry = { durationMs: elapsedMs, total: job.total ?? (job.done > 0 ? job.done : null) }
+    // Forget and re-add, so the newest runs sit last and the oldest are cut first.
+    delete history[job.signature]
+    delete history[job.family]
+    history[job.signature] = entry
+    history[job.family] = entry
     const keys = Object.keys(history)
-    for (const old of keys.slice(0, Math.max(0, keys.length - 50))) {
+    for (const old of keys.slice(0, Math.max(0, keys.length - 80))) {
       delete history[old]
     }
     await $.store.set('history', history)
@@ -271,7 +241,10 @@ const track = async (
   const signature = `${kind}:${e.command.trim().replace(/\s+/g, ' ').slice(0, 200)}`
   const history = ((await $.store.get('history')) ?? {}) as History
   const last = history[signature]
+  const kin = family(kind, e.command)
+  const similar = last === undefined ? history[kin] : undefined
   const label = e.command.trim().replace(/\s+/g, ' ')
+  const theme = pickTheme(kind, id, await $.store.get('theme'))
 
   const job: Job = {
     id,
@@ -290,8 +263,11 @@ const track = async (
     failed: 0,
     unit: kind === 'test' ? 'tests' : 'frames',
     lastLine: '',
-    expectedMs: last?.durationMs ?? null,
+    expectedMs: (last ?? similar)?.durationMs ?? null,
     expectedTotal: last?.total ?? null,
+    expectedFrom: last !== undefined ? 'same' : similar !== undefined ? 'similar' : null,
+    family: kin,
+    theme,
   }
 
   await update($, jobs, list => [...list.filter(one => one.id !== id), job].slice(-KEEP * 2))
@@ -344,20 +320,53 @@ export const register: Register = on => {
 
       const live = (await read($, jobs)).filter(job => job.status === 'running')
       const latest = live[live.length - 1]
+      const eta = latest === undefined ? undefined : left(latest)
       $.ui.status(
         latest === undefined
           ? undefined
-          : `${title(latest)} ${pct(latest)} · ${fmt(latest.elapsedMs)}`.replace('  ', ' '),
+          : [title(latest), pct(latest), eta?.text ?? `${fmt(latest.elapsedMs)} elapsed`]
+              .filter(part => part !== '')
+              .join(' · '),
       )
     })
 
     return next(e)
   })
 
-  on('command.run', { command: 'jobs' }, async $ => {
+  on('command.run', { command: 'jobs' }, async ($, e) => {
+    const [sub = '', arg = ''] = e.args.trim().split(/\s+/)
+
+    if (sub === 'theme') {
+      if (arg === 'auto' || isTheme(arg)) {
+        await $.store.set('theme', arg === 'auto' ? null : arg)
+
+        return { text: `Next jobs will use ${arg === 'auto' ? 'a surprise scene each time' : `the ${arg} scene`}.` }
+      }
+
+      return { text: `Pick one: ${themeNames().join(', ')}, or auto.  Usage: /jobs theme rocket` }
+    }
+
+    if (sub === 'eta') {
+      const ms = parseDuration(arg)
+      const running = (await read($, jobs)).filter(job => job.status === 'running')
+      const latest = running[running.length - 1]
+
+      if (ms === undefined || ms <= 0) {
+        return { text: 'Tell me how long the running job takes, like /jobs eta 20m (or 1h30m, 45s).' }
+      }
+      if (latest === undefined) {
+        return { text: 'Nothing is running right now.' }
+      }
+      await update($, jobs, list =>
+        list.map(one => (one.id === latest.id ? { ...one, expectedMs: ms, expectedFrom: 'you' } : one)),
+      )
+
+      return { text: `Counting down from ${fmt(ms)} for the running ${title(latest).toLowerCase()}.` }
+    }
+
     await $.ui.open({ id: PANE, title: 'Progress' })
 
-    return { text: 'Progress pane opened.' }
+    return { text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the scene.' }
   })
 
   // If this mod fails, the command still runs once, as the model wrote it.
@@ -374,7 +383,7 @@ export const register: Register = on => {
     const running = list.filter(job => job.status === 'running').reverse()
     const finished = list.filter(job => job.status !== 'running').reverse().slice(0, KEEP)
     const shown = [...running, ...finished]
-    const width = Math.max(12, Math.min(48, (e.props.bodyColumns ?? 40) - 12))
+    const cells = Math.max(6, Math.min(22, Math.floor(((e.props.bodyColumns ?? 40) - 2) / 2)))
 
     if (shown.length === 0) {
       return <Text dimColor>No test run or render yet. They show up here while they run.</Text>
@@ -390,10 +399,19 @@ export const register: Register = on => {
               </Text>
               <Text dimColor> {job.label}</Text>
             </Text>
-            <Text color={color(job)}>
-              {bar(job, width)} {pct(job)}
+            <Text color={color(job)}>{scene(job, cells)}</Text>
+            <Text>
+              <Text color={color(job)} bold>
+                {pct(job)}
+              </Text>
+              {job.status === 'running' && (
+                <Text bold={left(job) !== undefined} dimColor={left(job) === undefined}>
+                  {pct(job) === '' ? '' : ' · '}⏳ {remaining(job)}
+                </Text>
+              )}
             </Text>
             <Text dimColor>{detail(job)}</Text>
+            <Text color={color(job)}>{quip(job)}</Text>
             {job.status === 'running' && job.lastLine !== '' && (
               <Text dimColor wrap="truncate-end">
                 {job.lastLine}
@@ -422,17 +440,13 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
     const more = live.length > 1 ? ` (+${live.length - 1} more)` : ''
+    const eta = left(job)
 
     return (
       <Box>
-        <Text color={color(job)}>
-          {title(job)} {bar(job, 20)} {pct(job)}
-        </Text>
-        <Text dimColor>
-          {' '}
-          {fmt(job.elapsedMs)}
-          {more}
-        </Text>
+        <Text color={color(job)}>{scene(job, 10)} </Text>
+        <Text bold>{[pct(job), eta?.text ?? `${fmt(job.elapsedMs)} elapsed`].filter(part => part !== '').join(' · ')}</Text>
+        <Text dimColor>{more}</Text>
       </Box>
     )
   })

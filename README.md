@@ -4,16 +4,28 @@ A Claude Code mod that shows live progress while a test suite or a video render 
 
 When Claude runs a test command or a render through the Bash or PowerShell tool, the mod shows:
 
-- a **Progress pane** with a bar, percentage, counts (`12/20 files · 1 failed`), elapsed time, ETA, phase and the last output line (`/jobs` reopens it)
-- a **one-line bar above the prompt** while a job runs
+- a **Progress pane** with a little animated scene instead of a plain bar (a rocket flying to the moon, a car racing to the flag, pac-man eating dots, a hammer whacking bugs, a bunny eating carrots, a turtle, a hungry face eating pizza), the percentage, **time left and the clock time it should finish**, counts (`12/20 files · 1 failed`), elapsed time, phase and the last output line (`/jobs` reopens it)
+- a **one-line scene above the prompt** while a job runs
 - a **status line** entry and a **toast** when it finishes
+
+### Time left
+
+- When the output says how far along it is (Playwright, pytest, Remotion), time left comes from that.
+- Otherwise it comes from how long the same command took last time. For a command it has not seen, it falls back to the last run of the same tool in the same folder, marked `(rough)`.
+- A first run that prints nothing has no estimate. Some renderers (HyperFrames, and Remotion when its output is piped) print nothing until they finish. Tell the mod yourself: `/jobs eta 20m`.
+
+### Commands
+
+- `/jobs` opens the pane
+- `/jobs eta 20m` sets how long the running job should take (`45s`, `1h30m`, or minutes)
+- `/jobs theme pacman` picks the scene for new jobs, `/jobs theme auto` goes back to a surprise each time (`rocket racecar pizza turtle pacman bugs bunny`)
 
 ## What it recognises
 
 - Tests: `npm/pnpm/yarn/bun test`, `vitest`, `jest`, `mocha`, `playwright test`, `pytest`, `go test`, `cargo test`, `dotnet test`, `node --test`
 - Renders: `remotion render`, `remotion still`, `hyperframes render`, `npm run render`
 
-Remotion output is read natively (bundling, rendering and encoding in one bar). Other renderers are followed by any `n/m` or `%` they print. Playwright and pytest print totals, so their bar is exact. Vitest, Jest, Go and `node --test` don't print a total up front, so the bar uses the total from the previous run of the same command; the first run shows a sweeping bar with counts.
+Remotion output is read natively (bundling, rendering and encoding in one bar). Other renderers are followed by any `n/m` or `%` they print. Playwright and pytest print totals, so their bar is exact. Vitest, Jest, Go and `node --test` don't print a total up front, so the scene uses the total from the previous run of the same command; the first run shows the character bouncing back and forth, with counts.
 
 ## How it works
 

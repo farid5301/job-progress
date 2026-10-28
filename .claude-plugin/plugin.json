@@ -1,6 +1,6 @@
 {
   "name": "job-progress",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Live progress bar for test suites and Remotion/HyperFrames renders run through Bash or PowerShell",
   "types": "./types/index.d.ts",
   "license": "MIT"

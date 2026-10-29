@@ -1,9 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 
-import type { Job, JobStatus } from '../types'
+import type { Job, JobStatus, Waiting } from '../types'
 import { clock, family, fmt, isTheme, left, parseDuration, pickTheme, quip, themeNames, track as scene } from './fun'
 import { DONE, detect, exitCode, parse } from './parse'
+import { describeTool, emptyTurn, equivalent, fact, spinnerText, stage, tally, untilNext, walk } from './waiting'
 
 const PANE = 'job-progress'
 const KEEP = 12
@@ -14,6 +15,11 @@ const MAX_RUN_MS = 3 * 60 * 60 * 1000
 const jobs = atom({ plugin: 'job-progress', key: 'jobs' } as const, [], {
   shape: 'jobs-2',
 })
+
+const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-1' })
+
+const NO_WAITING: Waiting = { isOn: true, day: '', todayMs: 0, todayTurns: 0, longestMs: 0 }
+const waiting = atom({ plugin: 'job-progress', key: 'waiting' } as const, NO_WAITING, { shape: 'waiting-1' })
 
 type History = Record<string, { durationMs: number; total: number | null }>
 type Settled = Exclude<JobStatus, 'running'>
@@ -222,6 +228,75 @@ const poll = async ($: EngineInterface, id: string): Promise<void> => {
 type ShellCall = { command: string; tool_use_id: string }
 
 let hasOpened = false
+let hasOpenedForWait = false
+
+const today = (ms: number): string => {
+  const d = new Date(ms)
+
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
+const startTurn = async ($: EngineInterface, id: string): Promise<void> => {
+  const startedAt = await $.clock.now()
+
+  await update($, turn, () => ({ ...emptyTurn(), id, running: true, startedAt }))
+}
+
+const tickTurn = async ($: EngineInterface): Promise<void> => {
+  const t = await read($, turn)
+
+  if (!t.running) {
+    return
+  }
+  const elapsedMs = (await $.clock.now()) - t.startedAt
+  await update($, turn, one => (one.running && one.id === t.id ? { ...one, elapsedMs } : one))
+
+  // A long wait gets the waiting card in view, once a session.
+  if (elapsedMs > 45_000 && !hasOpenedForWait && (await read($, waiting)).isOn) {
+    hasOpenedForWait = true
+    hasOpened = true
+    void $.ui.open({ id: PANE, title: 'Progress' })
+  }
+}
+
+const noteTool = async ($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<void> => {
+  if (!(await read($, turn)).running) {
+    return
+  }
+  const { kind, now } = describeTool(tool, input)
+
+  await update($, turn, one => (one.running ? { ...one, [kind]: one[kind] + 1, now } : one))
+}
+
+const endTurn = async ($: EngineInterface, id: string, durationMs: number): Promise<void> => {
+  const t = await read($, turn)
+
+  if (!t.running || t.id !== id) {
+    return
+  }
+  const now = await $.clock.now()
+  const elapsedMs = durationMs > 0 ? durationMs : now - t.startedAt
+  await update($, turn, one => (one.id === id ? { ...one, running: false, elapsedMs, now: '' } : one))
+
+  const day = today(now)
+  const before = await read($, waiting)
+  const fresh = before.day === day ? before : { ...before, day, todayMs: 0, todayTurns: 0, longestMs: 0 }
+  const after: Waiting = {
+    ...fresh,
+    todayMs: fresh.todayMs + elapsedMs,
+    todayTurns: fresh.todayTurns + 1,
+    longestMs: Math.max(fresh.longestMs, elapsedMs),
+  }
+  await update($, waiting, () => after)
+  await $.store.set('waiting', after)
+
+  if (after.isOn && elapsedMs >= 90_000) {
+    $.ui.toast(
+      `Claude is done after ${fmt(elapsedMs)}, ${equivalent(elapsedMs)}. Your ${stage(elapsedMs).pet} says hi.`,
+      { timeoutMs: 10_000 },
+    )
+  }
+}
 
 const track = async (
   $: EngineInterface,
@@ -308,7 +383,14 @@ export const register: Register = on => {
       description: 'Show the progress of running tests and renders in a pane',
     })
 
+    const saved = (await $.store.get('waiting')) as Partial<Waiting> | undefined
+    if (saved !== undefined && saved !== null) {
+      await update($, waiting, () => ({ ...NO_WAITING, ...saved }))
+    }
+
     $.clock.every(1000, async () => {
+      await tickTurn($)
+
       const running = (await read($, jobs)).filter(job => job.status === 'running')
 
       if (running.length === 0) {
@@ -346,6 +428,20 @@ export const register: Register = on => {
       return { text: `Pick one: ${themeNames().join(', ')}, or auto.  Usage: /jobs theme rocket` }
     }
 
+    if (sub === 'fun') {
+      const isOn = arg !== 'off'
+      const after = { ...(await read($, waiting)), isOn }
+
+      await update($, waiting, () => after)
+      await $.store.set('waiting', after)
+
+      return {
+        text: isOn
+          ? 'Waiting is fun again: a pet hatches while Claude works.'
+          : 'The waiting pet is off. /jobs fun on brings it back.',
+      }
+    }
+
     if (sub === 'eta') {
       const ms = parseDuration(arg)
       const running = (await read($, jobs)).filter(job => job.status === 'running')
@@ -366,7 +462,45 @@ export const register: Register = on => {
 
     await $.ui.open({ id: PANE, title: 'Progress' })
 
-    return { text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the scene.' }
+    return {
+      text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the scene; /jobs fun off hides the waiting pet.',
+    }
+  })
+
+  // Claude's own turns, on the main loop: a pet hatches and grows while it works.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      await startTurn($, e.turnId)
+    }
+
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const out = await next(e)
+
+    if (e.agentId === undefined) {
+      await endTurn($, e.turnId, e.durationMs)
+    }
+
+    return out
+  })
+
+  // Counts what Claude does during the turn; the call itself is never changed.
+  on('tool.call', async ($, e, next) => {
+    await noteTool($, e.tool, e as unknown as Record<string, unknown>).catch(() => undefined)
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    const t = await read($, turn)
+
+    if (!t.running || !(await read($, waiting)).isOn) {
+      return next(e)
+    }
+
+    return next({ ...e, props: { ...e.props, suffix: `… ${spinnerText(t)}` } })
   })
 
   // If this mod fails, the command still runs once, as the model wrote it.
@@ -385,12 +519,79 @@ export const register: Register = on => {
     const shown = [...running, ...finished]
     const cells = Math.max(6, Math.min(22, Math.floor(((e.props.bodyColumns ?? 40) - 2) / 2)))
 
-    if (shown.length === 0) {
-      return <Text dimColor>No test run or render yet. They show up here while they run.</Text>
+    const t = await read($, turn)
+    const w = await read($, waiting)
+    const pet = stage(t.elapsedMs).pet
+    const soon = untilNext(t.elapsedMs)
+    const counts = tally(t)
+    const isToday = w.day === today(await $.clock.now()) && w.todayTurns > 0
+    const REACTIONS = ['Yum!', 'Burp.', 'More please!', 'It does a little dance.', 'It is getting chubby.']
+
+    const card = !w.isOn ? null : t.running ? (
+      <Box key="wait" flexDirection="column">
+        <Text>
+          <Text bold color="magenta">
+            Claude is working
+          </Text>
+          <Text dimColor> · {fmt(t.elapsedMs)}</Text>
+        </Text>
+        <Text>{walk(t.elapsedMs, cells)}</Text>
+        <Text>
+          {stage(t.elapsedMs).line}
+          <Text dimColor>{soon === undefined ? '' : `  next: ${soon}`}</Text>
+        </Text>
+        <Text dimColor>⏱ That's {equivalent(t.elapsedMs)}</Text>
+        {counts !== '' && <Text>{counts}</Text>}
+        {t.now !== '' && (
+          <Text dimColor wrap="truncate-end">
+            Now: {t.now}
+          </Text>
+        )}
+        <Text color="yellow">💡 {fact(t)}</Text>
+        <Box flexDirection="row" gap={1}>
+          <Button
+            key="fact"
+            label="🥠 New fact"
+            onPress={() => update($, turn, one => ({ ...one, factShift: one.factShift + 1 }))}
+          />
+          <Button
+            key="feed"
+            label={`🍖 Feed the ${pet}`}
+            onPress={() => update($, turn, one => ({ ...one, feeds: one.feeds + 1 }))}
+          />
+        </Box>
+        {t.feeds > 0 && (
+          <Text dimColor>
+            {pet} {REACTIONS[(t.feeds - 1) % REACTIONS.length]} Fed {t.feeds} {t.feeds === 1 ? 'time' : 'times'}.
+          </Text>
+        )}
+        {isToday && (
+          <Text dimColor>
+            Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} of waiting, longest{' '}
+            {fmt(w.longestMs)}
+          </Text>
+        )}
+      </Box>
+    ) : t.id !== '' ? (
+      <Box key="wait" flexDirection="column">
+        <Text dimColor>
+          Last wait {fmt(t.elapsedMs)}, {equivalent(t.elapsedMs)}. Your {pet} is napping.
+        </Text>
+        {isToday && (
+          <Text dimColor>
+            Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} of waiting
+          </Text>
+        )}
+      </Box>
+    ) : null
+
+    if (shown.length === 0 && card === null) {
+      return <Text dimColor>Nothing yet. Test runs, renders and Claude's long turns show up here.</Text>
     }
 
     return (
       <Box flexDirection="column" gap={1}>
+        {card}
         {shown.map(job => (
           <Box key={job.id} flexDirection="column">
             <Text>

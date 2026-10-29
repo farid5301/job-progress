@@ -37,8 +37,38 @@ export type Job = {
   theme: string
 }
 
+/** Claude's current (or last) turn on the main loop, as the waiting card draws it. */
+export type Turn = {
+  id: string
+  running: boolean
+  startedAt: number
+  elapsedMs: number
+  reads: number
+  edits: number
+  commands: number
+  searches: number
+  web: number
+  helpers: number
+  other: number
+  /** A few words on the latest tool call. */
+  now: string
+  /** Presses of "New fact". */
+  factShift: number
+  /** Presses of "Feed it". */
+  feeds: number
+}
+
+/** The person's switch and today's waiting, kept in the store too. */
+export type Waiting = {
+  isOn: boolean
+  day: string
+  todayMs: number
+  todayTurns: number
+  longestMs: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'job-progress': { jobs: Shaped<Job[]> }
+    'job-progress': { jobs: Shaped<Job[]>; turn: Shaped<Turn>; waiting: Shaped<Waiting> }
   }
 }

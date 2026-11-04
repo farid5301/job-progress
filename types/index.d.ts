@@ -56,6 +56,10 @@ export type Turn = {
   files: string[]
   /** A few words on the latest tool call. */
   now: string
+  /** The kind of tool running right now, or "" while Claude thinks between tools. */
+  kind: string
+  /** When the latest failed tool call came back, in ms into the turn; -1 for none. */
+  errorAtMs: number
   /** Why the turn ended: answer, aborted, error or refusal; "" while it runs. */
   reason: string
   /** Tokens the turn used, once it has ended. */
@@ -69,6 +73,10 @@ export type Waiting = {
   todayMs: number
   todayTurns: number
   longestMs: number
+  /** The buddy the person picked, or "" for a different one each turn. */
+  buddy: string
+  /** True to keep the buddy still, for people who prefer less motion. */
+  isStill: boolean
 }
 
 declare module 'claude-code' {

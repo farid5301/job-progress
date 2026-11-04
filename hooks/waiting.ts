@@ -1,205 +1,8 @@
 import type { Turn } from '../types'
+import { doing, pickBuddy, type Pose } from './buddy'
 
-// While Claude works, a traveller crosses a little world: the longer the wait,
-// the further the journey goes, from a morning walk to outer space. Every cell
-// of a scene row is two columns wide (an emoji, or two narrow characters), so
-// the rows keep their width as the world scrolls past.
-
-type Chapter = {
-  at: number
-  name: string
-  who: string
-  /** The traveller, in two frames. */
-  traveller: [string, string]
-  /** What follows the traveller, in two frames: dust, a wake, carriages. */
-  trail: [string[], string[]]
-  sky: string[]
-  /** The sun or moon, crossing the sky as the chapter goes on. */
-  light?: string
-  far: string[]
-  near: string[]
-  ground: string[]
-  groundColor: string
-  /** The traveller's row reads as the ground itself (the sea, say). */
-  nearColor?: string
-  isNight: boolean
-  lines: string[]
-}
-
-const _ = '  '
-
-const CHAPTERS: Chapter[] = [
-  {
-    at: 0,
-    name: 'Morning walk',
-    who: 'Biscuit the dog',
-    traveller: ['🐕', '🐕'],
-    trail: [['💨'], [_]],
-    sky: [_, _, '⛅', _, _, _, _, _, '⛅', _, _, _, _],
-    light: '🌞',
-    far: ['🌳', _, '🏡', _, _, '🌲', '🌳', _, _, '🌳', '🏠', _, '🌲', _, _],
-    near: [_, '🌷', _, _, _, '🌻', _, _, _, '🌼', _, _, _, '🦋', _, _],
-    ground: ['▁▁', '▁▁', '▁,', '▁▁', '.▁', '▁▁'],
-    groundColor: 'success',
-    isNight: false,
-    lines: ['is out for a morning walk', 'found a very good stick', 'sniffs every single flower', 'says the code smells nice'],
-  },
-  {
-    at: 45_000,
-    name: 'Through the forest',
-    who: 'Maple the fox',
-    traveller: ['🦊', '🦊'],
-    trail: [['🍂'], [_]],
-    sky: [_, '⛅', _, _, _, '🐦', _, _, _, _, '⛅', _, _],
-    light: '🌞',
-    far: ['🌲', '🌲', '🌳', '🌲', _, '🌲', '🌲', '🌲', '🌳', _, '🌲', '🌲'],
-    near: [_, '🍄', _, _, '🌿', _, _, _, '🦔', _, _, '🍄', _, _],
-    ground: ['▁▁', '▁▂', '▂▁', '▁▁', '▁▁'],
-    groundColor: 'success',
-    isNight: false,
-    lines: ['takes the scenic route', 'waves at a hedgehog', 'knows a shortcut, probably', 'is deep in the woods'],
-  },
-  {
-    at: 2 * 60_000,
-    name: 'Along the coast',
-    who: 'Captain Sal',
-    traveller: ['⛵', '⛵'],
-    trail: [[' ~', '~ '], ['~ ', ' ~']],
-    sky: [_, '🐦', _, _, '⛅', _, _, _, '🐦', _, _, _, _],
-    light: '🌞',
-    far: [_, _, '🐳', _, _, _, _, '🌴', _, _, '🐬', _, _, _, _],
-    near: ['≈≈', '~≈', '≈~', '≈≈', '≈≈', '~≈'],
-    nearColor: 'suggestion',
-    ground: [_, '🐠', _, _, _, _, '🐚', _, _, '🐟', _, _, _, '🦀', _],
-    groundColor: 'suggestion',
-    isNight: false,
-    lines: ['sails past a whale', 'is racing a dolphin', 'reports smooth sailing', 'can see land, sort of'],
-  },
-  {
-    at: 5 * 60_000,
-    name: 'City lights',
-    who: 'Rita the taxi',
-    traveller: ['🚕', '🚕'],
-    trail: [['💨'], [_]],
-    sky: [_, '⭐', _, _, _, '✨', _, _, '⭐', _, _, _, _, '✨'],
-    light: '🌙',
-    far: ['🏢', '🏬', _, '🏢', '🏨', '🏦', _, '🏢', '🏪', '🏬', _, '🏢'],
-    near: [_, _, '🚦', _, _, _, _, _, '🌳', _, _, _, _, '🚏', _],
-    ground: ['━━', '━━', _, '━━', '━━', _],
-    groundColor: 'subtle',
-    isNight: true,
-    lines: ['takes the long way through town', 'gets every green light', 'knows the city never sleeps', 'keeps the meter running'],
-  },
-  {
-    at: 10 * 60_000,
-    name: 'Over the mountains',
-    who: 'The night express',
-    traveller: ['🚂', '🚂'],
-    trail: [['🚃', '🚃'], ['🚃', '🚃']],
-    sky: [_, '⭐', _, _, _, _, '⭐', _, _, '✨', _, _, _],
-    light: '🌕',
-    far: ['🗻', _, _, '🗻', '🌲', _, '🗻', _, _, '🌲', '🗻', _],
-    near: [_, '🌲', _, _, _, _, '🌲', '🌲', _, _, _, _],
-    ground: ['==', '=+', '=='],
-    groundColor: 'subtle',
-    isNight: true,
-    lines: ['is a long one. Stretch your legs?', 'climbs, and so does the token count', 'has a dining car, just saying', 'is right on schedule, somehow'],
-  },
-  {
-    at: 20 * 60_000,
-    name: 'Into space',
-    who: 'Cosmo the rocket',
-    traveller: ['🚀', '🚀'],
-    trail: [['🔥'], ['💨']],
-    sky: [_, '⭐', _, _, '✨', _, _, _, '⭐', _, _, '✨', _],
-    far: [_, '🪐', _, _, _, _, _, '🌍', _, _, _, _, '🛸', _, _, _],
-    near: [_, _, _, '✨', _, _, _, _, _, '🌠', _],
-    ground: ['. ', _, ' .', _, _],
-    groundColor: 'subtle',
-    isNight: true,
-    lines: ['has left the atmosphere', 'says Houston, this is a big job', 'reports that space is very big', 'waves from orbit'],
-  },
-]
-
-// After the last chapter the journey loops through space in laps of this length.
-const LAP_MS = 10 * 60_000
-
-export const chapter = (ms: number): Chapter & { index: number } => {
-  let index = 0
-
-  CHAPTERS.forEach((one, i) => {
-    if (ms >= one.at) {
-      index = i
-    }
-  })
-
-  return { ...(CHAPTERS[index] as Chapter), index }
-}
-
-export const chapterCount = CHAPTERS.length
-
-const progressIn = (ms: number): number => {
-  const now = chapter(ms)
-  const next = CHAPTERS[now.index + 1]
-
-  return next === undefined ? ((ms - now.at) % LAP_MS) / LAP_MS : (ms - now.at) / (next.at - now.at)
-}
-
-/** What comes next and when, for the line under the scene. */
-export const untilNext = (ms: number): { name: string; ms: number } | undefined => {
-  const next = CHAPTERS[chapter(ms).index + 1]
-
-  return next === undefined ? undefined : { name: next.name, ms: next.at - ms }
-}
-
-const windowed = (pattern: string[], offset: number, n: number): string[] =>
-  Array.from({ length: n }, (_x, i) => pattern[(((i - offset) % pattern.length) + pattern.length) % pattern.length] ?? _)
-
-export type SceneRow = { text: string; color?: string }
-
-/**
- * The world at this moment, four rows tall: sky, far away, the traveller's
- * row and the ground. Far things drift slower than near ones, the sun or moon
- * crosses the sky over the chapter, and stars twinkle at night.
- */
-export const scene = (ms: number, cells: number): SceneRow[] => {
-  const ch = chapter(ms)
-  const n = Math.max(8, Math.min(24, cells))
-  const frame = Math.floor(ms / 500)
-
-  const sky = windowed(ch.sky, Math.floor(frame / 8), n).map((cell, i) =>
-    ch.isNight && cell === '⭐' && (i + Math.floor(frame / 2)) % 3 === 0 ? '✨' : cell,
-  )
-  if (ch.light !== undefined) {
-    sky[Math.min(n - 1, Math.floor(progressIn(ms) * n))] = ch.light
-  }
-  const far = windowed(ch.far, Math.floor(frame / 3), n)
-  const near = windowed(ch.near, frame, n)
-  const ground = windowed(ch.ground, frame, n)
-
-  // The world scrolls right, so the traveller heads left, the way most emoji face.
-  const at = Math.floor(n / 3)
-  near[at] = ch.traveller[frame % 2] ?? ch.traveller[0]
-  for (const [i, cell] of (ch.trail[frame % 2] ?? []).entries()) {
-    if (at + 1 + i < n) {
-      near[at + 1 + i] = cell
-    }
-  }
-
-  return [
-    { text: sky.join(''), color: ch.isNight ? 'warning' : 'subtle' },
-    { text: far.join('') },
-    { text: near.join(''), color: ch.nearColor },
-    { text: ground.join(''), color: ch.groundColor },
-  ]
-}
-
-/** "Biscuit the dog found a very good stick", changing every 8 seconds. */
-export const caption = (ms: number): string => {
-  const ch = chapter(ms)
-
-  return `${ch.who} ${ch.lines[Math.floor(ms / 8000) % ch.lines.length] ?? ''}`
-}
+// What the waiting card knows about a turn: what kind of work each tool call
+// is, the running tally, the wait in everyday terms, and the facts.
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
@@ -293,12 +96,12 @@ const FACTS: Fact[] = [
   { tag: SCHEDULING, icon: '📅', text: 'PERT was created in 1958 for the US Navy’s Polaris missile programme.' },
   { tag: SCHEDULING, icon: '📅', text: 'Karol Adamiecki drew a bar chart schedule in 1896, years before Henry Gantt’s famous chart.' },
   { tag: SCHEDULING, icon: '📅', text: 'A task with zero total float is on the critical path: one day late there is one day late at the finish.' },
-  { tag: SCHEDULING, icon: '📅', text: 'Merge bias: where several paths meet, the odds of starting on time drop, which is why risk-run (Monte Carlo) dates land later than CPM dates.' },
-  { tag: SCHEDULING, icon: '📅', text: 'The DCMA 14-point check flags a schedule when more than 5% of its tasks carry over 44 working days of float.' },
-  { tag: SCHEDULING, icon: '📅', text: 'A lag is a wait between tasks. Use it for concrete curing, not as a hidden buffer: hidden time is the first time to vanish.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Merge bias: where paths meet, on-time odds drop, so Monte Carlo dates land later than CPM dates.' },
+  { tag: SCHEDULING, icon: '📅', text: 'The DCMA 14-point check flags a schedule if over 5% of tasks have more than 44 working days of float.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Use a lag for concrete curing, not as a hidden buffer. Hidden time is the first to vanish.' },
   { tag: SCHEDULING, icon: '📅', text: 'Hofstadter’s Law: it always takes longer than you expect, even when you take Hofstadter’s Law into account.' },
   { tag: SCHEDULING, icon: '📅', text: 'The word "deadline" first meant a line around a Civil War prison camp that prisoners must not cross.' },
-  { tag: SCHEDULING, icon: '📅', text: 'Student syndrome: people start a task at the last moment its float allows. Critical chain moves that float into one shared buffer.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Student syndrome: we start tasks as late as float allows. Critical chain pools that float into one buffer.' },
   { tag: SCHEDULING, icon: '📅', text: 'The cone of uncertainty: an estimate made at the idea stage can be off by a factor of four either way.' },
   { tag: SCHEDULING, icon: '📅', text: 'The planning fallacy, our habit of underestimating our own tasks, was named by Kahneman and Tversky in 1979.' },
   // Project management
@@ -314,7 +117,7 @@ const FACTS: Fact[] = [
   { tag: PM, icon: '📋', text: 'The ninety-ninety rule: the first 90% of the work takes 90% of the time. The last 10% takes the other 90%.' },
   // Science
   { tag: SCIENCE, icon: '🔬', text: 'Time runs a little faster at your head than at your feet. Atomic clocks can measure the difference.' },
-  { tag: SCIENCE, icon: '🔬', text: 'GPS satellites gain about 38 microseconds a day from relativity. Uncorrected, positions would drift kilometres daily.' },
+  { tag: SCIENCE, icon: '🔬', text: 'GPS satellites gain about 38 microseconds a day from relativity. Uncorrected, fixes would drift kilometres a day.' },
   { tag: SCIENCE, icon: '🔬', text: 'Bananas are slightly radioactive, thanks to potassium-40.' },
   { tag: SCIENCE, icon: '🔬', text: 'At its triple point, water boils and freezes at the same time.' },
   { tag: SCIENCE, icon: '🔬', text: 'Old church windows are thicker at the bottom because of how they were made, not because glass flows.' },
@@ -337,11 +140,22 @@ const FACTS: Fact[] = [
 /** The fact for a turn of the fact clock, which moves every 15 seconds. */
 export const fact = (index: number): Fact => FACTS[Math.abs(index) % FACTS.length] as Fact
 
-/** The words after the spinner's own: where the journey is, the wait in tea, or the tally, in turn. */
-export const spinnerText = (t: Turn): string => {
-  const ch = chapter(t.elapsedMs)
+/** What the buddy acts out: the tool at work, a fright after a failed call, or how the turn ended. */
+export const poseOf = (t: Turn): Pose => {
+  if (!t.running) {
+    return t.reason === 'aborted' ? 'stopped' : t.reason === 'error' || t.reason === 'refusal' ? 'failed' : 'done'
+  }
+  if (t.errorAtMs >= 0 && t.elapsedMs - t.errorAtMs < 4000) {
+    return 'oops'
+  }
+
+  return t.kind === '' ? 'thinking' : (t.kind as Pose)
+}
+
+/** The words after the spinner's own: what the buddy is up to, the wait in tea, or the tally, in turn. */
+export const spinnerText = (t: Turn, pinned = ''): string => {
   const counts = tally(t)
-  const options = [`${ch.traveller[0]} ${ch.name.toLowerCase()}`, `≈ ${equivalent(t.elapsedMs)}`]
+  const options = [doing(pickBuddy(t.id, pinned), poseOf(t)), `≈ ${equivalent(t.elapsedMs)}`]
 
   if (counts !== '') {
     options.push(counts)
@@ -369,6 +183,8 @@ export const emptyTurn = (): Turn => ({
   errors: 0,
   files: [],
   now: '',
+  kind: '',
+  errorAtMs: -1,
   reason: '',
   tokens: 0,
 })

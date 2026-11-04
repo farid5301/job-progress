@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { pickBuddy } from './buddy'
+
 const PANE = {
   plugin: 'job-progress',
   component: 'Pane',
@@ -86,7 +88,7 @@ const SPINNER = {
   props: { word: 'Creating', message: null, suffix: '…', mode: 'tool-use' },
 } as const
 
-test('while Claude works, a journey runs in the spinner and the pane, and the pane counts the work', async ($, on) => {
+test('while Claude works, a buddy acts it out in the spinner and the pane, under the fact, and the pane counts the work', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.store(on)
   mock.env(on, { TEMP: 'C:\\Temp' })
@@ -116,32 +118,47 @@ test('while Claude works, a journey runs in the spinner and the pane, and the pa
   await $.tool.call({ tool: 'Read', file_path: 'C:/site/index.html' })
   await $.tool.call({ tool: 'Edit', file_path: 'C:/site/index.html', old_string: 'a', new_string: 'b' })
   await $.tool.call({ tool: 'Bash', command: 'exit 1' })
-  // 36s in: chapter one, and the spinner's turn to show the traveller.
+  const buddy = pickBuddy('t1', '')
+  const first = buddy.name.split(' ')[0] ?? ''
+
+  // Right after the failed call the buddy gets a fright.
+  const fright = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await fright.find({ type: 'Text', text: /Oops!\sA\stool\scall\sfailed/ }))?.text).toBeTruthy()
+  await fright.unmount()
+
+  // 36s in, between tool calls: the buddy is thinking, and the spinner says so.
   await clock.advance(36_000)
 
   for (const surface of ['terminal', 'desktop'] as const) {
     suffix = ''
     const spin = await $.ui.mount({ ...SPINNER, surface })
-    expect(suffix).toContain('🐕')
+    expect(suffix).toContain(`${first} is thinking`)
     await spin.unmount()
 
     const pane = await $.ui.mount({ ...PANE, surface })
     expect((await pane.find({ type: 'Text', text: /Claude is working/ }))?.text).toContain('0:36')
-    expect((await pane.find({ type: 'Text', text: /Chapter 1/ }))?.text).toContain('Morning walk')
-    expect((await pane.find({ type: 'Text', text: /🌞/ }))?.text).toBeTruthy()
+    expect((await pane.find({ type: 'Text', text: /Thinking\sit\sover/ }))?.text).toBeTruthy()
+    expect((await pane.find({ type: 'Text', text: /keeping you company/ }))?.text).toContain(buddy.name)
     expect((await pane.find({ type: 'Text', text: /1 read/ }))?.text).toContain('1 edited')
-    expect((await pane.find({ type: 'Text', text: /Now:/ }))?.text).toContain('Running exit 1')
     expect((await pane.find({ type: 'Text', text: /Changed:/ }))?.text).toContain('index.html')
-    expect((await pane.find({ type: 'Text', text: /failed/ }))?.text).toContain('1 tool call')
-    expect((await pane.find({ type: 'Text', text: /Did you know/ }))?.text).toBeTruthy()
+    expect((await pane.find({ type: 'Text', text: /failed tool/ }))?.text).toContain('1 failed tool call')
+
+    // The fact comes first, above the buddy.
+    const texts = (await pane.findAll({ type: 'Text' })).map(one => one.text ?? '')
+    const factAt = texts.findIndex(text => text.includes('Did you know'))
+    expect(factAt).toBeGreaterThan(-1)
+    expect(factAt).toBeLessThan(texts.findIndex(text => text.includes('Claude is working')))
     await pane.unmount()
   }
 
-  // Seven minutes on, the journey has reached the city at night.
-  await clock.advance(7 * 60_000)
-  const later = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await later.find({ type: 'Text', text: /Chapter 4/ }))?.text).toContain('City lights')
-  await later.unmount()
+  // The person picks their buddy, and asks it to keep still.
+  const jobs = (args: string) =>
+    $.command.run({ command: 'jobs', args } as unknown as Parameters<typeof $.command.run>[0])
+  await jobs('buddy robot')
+  await jobs('motion off')
+  const picked = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await picked.find({ type: 'Text', text: /keeping you company/ }))?.text).toContain('Bolt the robot')
+  await picked.unmount()
 
   await $.turn.complete({
     answer: 'done',
@@ -154,5 +171,6 @@ test('while Claude works, a journey runs in the spinner and the pane, and the pa
   const done = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await done.find({ type: 'Text', text: /Claude is done/ }))?.text).toContain('7:36')
   expect((await done.find({ type: 'Text', text: /tokens/ }))?.text).toContain('45k')
+  expect((await done.find({ type: 'Text', text: /All\sdone\sin\s7:36/ }))?.text).toBeTruthy()
   await done.unmount()
 })

@@ -10,26 +10,20 @@ When Claude runs a test command or a render through the Bash or PowerShell tool,
 
 ### While Claude works
 
-Waiting on Claude itself gets fun too:
+Waiting on Claude itself gets a companion:
 
-- **A journey that grows with the wait.** Each stretch of a long turn is a new chapter with its own traveller and world:
-
-  | From | Chapter | Traveller |
-  | --- | --- | --- |
-  | 0s | Morning walk | 🐕 Biscuit the dog, past houses and flowers |
-  | 45s | Through the forest | 🦊 Maple the fox, past mushrooms and a hedgehog |
-  | 2m | Along the coast | ⛵ Captain Sal, past whales, dolphins and fish |
-  | 5m | City lights | 🚕 Rita the taxi, at night under the moon |
-  | 10m | Over the mountains | 🚂 the night express |
-  | 20m | Into space | 🚀 Cosmo the rocket, past planets and a UFO |
-
-  The scene is four rows tall and moves twice a second: distant things drift slower than near ones, the sun or moon crosses the sky over the chapter, and stars twinkle at night. The spinner line takes turns showing the chapter, the wait in everyday terms ("≈ about 3 cups of tea ☕") and what Claude has done so far.
-- **After 45 seconds the Progress pane opens with:**
-  - **Claude is working:** the time, the chapter and when the next one starts, the scene, and what is useful to know while you wait: what Claude is doing right now, what it has done (`📖 12 read · ✏ 4 edited · ⚡ 6 commands`), which files it has changed, how many tool calls failed, and today's waiting (turns, total, typical and longest turn).
-  - **When it ends:** done, stopped or ended early, how long it took, how many tokens it used, how far the traveller got, and the files changed.
-  - **💡 Did you know?:** a fact that changes by itself every 15 seconds, about scheduling, project management, science or code.
-- **A turn that ran for over 90 seconds ends with a toast** saying how long it took, how many files changed and any failed tool calls, so you know when to come back.
-- `/jobs fun off` turns all of this off, `/jobs fun on` brings it back.
+- **A buddy acts out what Claude is doing.** Each turn brings one of seven ASCII characters (Mochi the cat, Bolt the robot, Hoot the owl, Pip the penguin, Ribbit the frog, Clover the bunny, Biscuit the dog). It reads a book while Claude reads files, types on a laptop while Claude edits, watches a terminal while a command runs, hunts with a magnifier while Claude searches, spins a globe on the web, waves at a helper agent, and goes back to a thought cloud between tool calls. It blinks and fidgets, jumps when a tool call fails, gets a coffee on long thinks, and celebrates when the turn is done.
+- **A speech bubble says what is happening** ("Reading register.tsx", "Thinking it over...") with a line from the buddy under it.
+- **Nothing jumps.** The buddy is plain ASCII on a stage of fixed size, so the card keeps its size as it animates.
+- **The Progress pane opens after 45 seconds of waiting**, with:
+  - **💡 Did you know?** on top: a fact about scheduling, project management, science or code that changes by itself every 15 seconds.
+  - **Claude is working:** the time and the wait in everyday terms ("about 2 cups of tea ☕"), the buddy, what Claude has done (`📖 12 read · ✏ 4 edited · ⚡ 6 commands`), which files it changed, failed tool calls, and today's waiting (turns, total, typical and longest).
+  - **When it ends:** done, stopped or ended early, how long it took and how many tokens it used.
+- **The spinner line** takes turns showing what the buddy is up to ("🐱 Mochi is typing"), the wait in everyday terms and the tally.
+- **A turn that ran for over 90 seconds ends with a toast** saying how long it took, how many files changed and any failed tool calls.
+- `/jobs buddy cat` keeps one buddy (`cat robot owl penguin frog bunny dog`), `/jobs buddy auto` brings a different one each turn.
+- `/jobs motion off` keeps the buddy still, for less motion. `/jobs motion on` brings the animation back.
+- `/jobs fun off` turns the waiting card off, `/jobs fun on` brings it back.
 
 ### Time left
 
@@ -41,7 +35,9 @@ Waiting on Claude itself gets fun too:
 
 - `/jobs` opens the pane
 - `/jobs eta 20m` sets how long the running job should take (`45s`, `1h30m`, or minutes)
-- `/jobs fun off` hides the waiting journey, `/jobs fun on` brings it back
+- `/jobs buddy cat` picks your buddy, `/jobs buddy auto` a different one each turn
+- `/jobs motion off` keeps the buddy still, `/jobs motion on` animates it again
+- `/jobs fun off` hides the waiting card, `/jobs fun on` brings it back
 - `/jobs theme pacman` picks the scene for new jobs, `/jobs theme auto` goes back to a surprise each time (`rocket racecar pizza turtle pacman bugs bunny`)
 
 ## What it recognises

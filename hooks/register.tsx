@@ -4,20 +4,8 @@ import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 import type { Job, JobStatus, Waiting } from '../types'
 import { clock, family, fmt, isTheme, left, parseDuration, pickTheme, quip, themeNames, track as scene } from './fun'
 import { DONE, detect, exitCode, parse } from './parse'
-import {
-  caption,
-  chapter,
-  chapterCount,
-  describeTool,
-  emptyTurn,
-  equivalent,
-  fact,
-  noteFile,
-  scene as world,
-  spinnerText,
-  tally,
-  untilNext,
-} from './waiting'
+import { buddyIds, isBuddy, pickBuddy, quip as buddyQuip, stage } from './buddy'
+import { describeTool, emptyTurn, equivalent, fact, noteFile, poseOf, spinnerText, tally } from './waiting'
 
 const PANE = 'job-progress'
 const KEEP = 12
@@ -29,13 +17,13 @@ const jobs = atom({ plugin: 'job-progress', key: 'jobs' } as const, [], {
   shape: 'jobs-2',
 })
 
-const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-3' })
+const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-4' })
 
 // Moves every 15 seconds, so the fact in the pane changes whether Claude is working or not.
 const factClock = atom({ plugin: 'job-progress', key: 'factClock' } as const, 0, { shape: 'facts-1' })
 
-const NO_WAITING: Waiting = { isOn: true, day: '', todayMs: 0, todayTurns: 0, longestMs: 0 }
-const waiting = atom({ plugin: 'job-progress', key: 'waiting' } as const, NO_WAITING, { shape: 'waiting-1' })
+const NO_WAITING: Waiting = { isOn: true, day: '', todayMs: 0, todayTurns: 0, longestMs: 0, buddy: '', isStill: false }
+const waiting = atom({ plugin: 'job-progress', key: 'waiting' } as const, NO_WAITING, { shape: 'waiting-2' })
 
 type History = Record<string, { durationMs: number; total: number | null }>
 type Settled = Exclude<JobStatus, 'running'>
@@ -282,12 +270,21 @@ const noteTool = async ($: EngineInterface, tool: string, input: Record<string, 
   const { kind, now, file } = describeTool(tool, input)
 
   await update($, turn, one =>
-    one.running ? { ...one, [kind]: one[kind] + 1, now, files: noteFile(one.files, file ?? '') } : one,
+    one.running ? { ...one, [kind]: one[kind] + 1, kind, now, files: noteFile(one.files, file ?? '') } : one,
   )
 }
 
 const noteError = async ($: EngineInterface): Promise<void> => {
-  await update($, turn, one => (one.running ? { ...one, errors: one.errors + 1 } : one))
+  const now = await $.clock.now()
+
+  await update($, turn, one =>
+    one.running ? { ...one, errors: one.errors + 1, errorAtMs: now - one.startedAt } : one,
+  )
+}
+
+// Between tool calls Claude is thinking, and the buddy goes back to its thought cloud.
+const noteToolDone = async ($: EngineInterface): Promise<void> => {
+  await update($, turn, one => (one.running ? { ...one, kind: '' } : one))
 }
 
 type Ending = { durationMs: number; reason: string; tokens: number }
@@ -322,7 +319,7 @@ const endTurn = async ($: EngineInterface, id: string, end: Ending): Promise<voi
     const files = t.files.length > 0 ? ` · ${t.files.length} ${t.files.length === 1 ? 'file' : 'files'} changed` : ''
     const errors = t.errors > 0 ? ` · ${t.errors} tool ${t.errors === 1 ? 'error' : 'errors'}` : ''
     $.ui.toast(
-      `${end.reason === 'aborted' ? 'Stopped' : 'Claude is done'} after ${fmt(elapsedMs)}${files}${errors}. ${chapter(elapsedMs).who} made it to ${chapter(elapsedMs).name.toLowerCase()}.`,
+      `${end.reason === 'aborted' ? 'Stopped' : 'Claude is done'} after ${fmt(elapsedMs)}${files}${errors}.`,
       { timeoutMs: 10_000 },
     )
   }
@@ -475,9 +472,30 @@ export const register: Register = on => {
 
       return {
         text: isOn
-          ? 'The waiting journey is back on while Claude works.'
-          : 'The waiting journey is off. /jobs fun on brings it back.',
+          ? 'The waiting card is back on while Claude works.'
+          : 'The waiting card is off. /jobs fun on brings it back.',
       }
+    }
+
+    if (sub === 'buddy') {
+      if (arg !== 'auto' && !isBuddy(arg)) {
+        return { text: `Pick one: ${buddyIds.join(', ')}, or auto for a different one each turn.  Usage: /jobs buddy cat` }
+      }
+      const after = { ...(await read($, waiting)), buddy: arg === 'auto' ? '' : arg }
+
+      await update($, waiting, () => after)
+      await $.store.set('waiting', after)
+
+      return { text: arg === 'auto' ? 'A different buddy each turn, then.' : `${pickBuddy('', arg).name} will keep you company.` }
+    }
+
+    if (sub === 'motion') {
+      const after = { ...(await read($, waiting)), isStill: arg === 'off' }
+
+      await update($, waiting, () => after)
+      await $.store.set('waiting', after)
+
+      return { text: after.isStill ? 'The buddy keeps still now. /jobs motion on brings the animation back.' : 'The buddy moves again.' }
     }
 
     if (sub === 'eta') {
@@ -501,11 +519,11 @@ export const register: Register = on => {
     await $.ui.open({ id: PANE, title: 'Progress' })
 
     return {
-      text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the scene; /jobs fun off hides the waiting journey.',
+      text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the job scene; /jobs buddy cat picks your buddy; /jobs motion off keeps it still; /jobs fun off hides the waiting card.',
     }
   })
 
-  // Claude's own turns, on the main loop: a traveller's journey runs while it works.
+  // Claude's own turns, on the main loop: a buddy keeps you company while it works.
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       await startTurn($, e.turnId)
@@ -534,6 +552,7 @@ export const register: Register = on => {
     await noteTool($, e.tool, e as unknown as Record<string, unknown>).catch(() => undefined)
     const out = await next(e)
 
+    await noteToolDone($).catch(() => undefined)
     if (out.isError === true) {
       await noteError($).catch(() => undefined)
     }
@@ -543,12 +562,13 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const t = await read($, turn)
+    const w = await read($, waiting)
 
-    if (!t.running || !(await read($, waiting)).isOn) {
+    if (!t.running || !w.isOn) {
       return next(e)
     }
 
-    return next({ ...e, props: { ...e.props, suffix: `… ${spinnerText(t)}` } })
+    return next({ ...e, props: { ...e.props, suffix: `… ${spinnerText(t, w.buddy)}` } })
   })
 
   // If this mod fails, the command still runs once, as the model wrote it.
@@ -567,13 +587,12 @@ export const register: Register = on => {
     const shown = [...running, ...finished]
     const columns = e.props.bodyColumns ?? 40
     const cells = Math.max(6, Math.min(22, Math.floor((columns - 2) / 2)))
-    const inCard = Math.max(8, Math.min(24, Math.floor((columns - 4) / 2)))
 
     const t = await read($, turn)
     const w = await read($, waiting)
     const tip = fact(await read($, factClock))
-    const ch = chapter(t.elapsedMs)
-    const soon = untilNext(t.elapsedMs)
+    const buddy = pickBuddy(t.id, w.buddy)
+    const pose = poseOf(t)
     const counts = tally(t)
     const isToday = w.day === today(await $.clock.now()) && w.todayTurns > 0
     const files =
@@ -588,11 +607,35 @@ export const register: Register = on => {
       </Text>
     )
 
-    const sceneBox = (
-      <Box key="scene" flexDirection="column" borderStyle="round" borderColor={ch.isNight ? 'permission' : 'suggestion'}>
-        {world(t.elapsedMs, inCard).map((row, i) => (
-          <Text key={`row${i}`} mono color={row.color}>
-            {row.text}
+    // The bubble's first line says what is happening; the second is the buddy's own.
+    const say = t.running
+      ? pose === 'thinking'
+        ? 'Thinking it over...'
+        : pose === 'oops'
+          ? 'Oops! A tool call failed.'
+          : t.now
+      : pose === 'done'
+        ? `All done in ${fmt(t.elapsedMs)}!`
+        : pose === 'stopped'
+          ? `Stopped after ${fmt(t.elapsedMs)}.`
+          : 'That ended early.'
+    const aside = t.running
+      ? buddyQuip(buddy, pose, t.elapsedMs)
+      : pose === 'done'
+        ? 'See you next turn.'
+        : pose === 'stopped'
+          ? 'Nap time, then.'
+          : 'The chat says why.'
+
+    const stageBox = (
+      <Box key="stage" flexDirection="column">
+        {stage({ buddy, pose, ms: t.elapsedMs, isStill: w.isStill, say, quip: aside }).map((row, i) => (
+          <Text key={`row${i}`} mono wrap="truncate-end">
+            {row.map((part, j) => (
+              <Text key={`part${j}`} mono color={part.color} italic={part.italic}>
+                {part.text}
+              </Text>
+            ))}
           </Text>
         ))}
       </Box>
@@ -605,84 +648,82 @@ export const register: Register = on => {
           ? { mark: '✖ Ended early', color: 'error' }
           : { mark: '✓ Claude is done', color: 'success' }
 
-    const status = t.running ? (
-      <Box key="status" flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
-        <Text>
-          <Text bold color="claude">
-            ● Claude is working
-          </Text>
-          <Text bold> {fmt(t.elapsedMs)}</Text>
-          <Text color="subtle"> · {equivalent(t.elapsedMs)}</Text>
+    const work = [
+      counts !== '' && <Text key="counts">{counts}</Text>,
+      files !== '' && (
+        <Text key="files" color="subtle" wrap="truncate-end">
+          ✏ Changed: {files}
         </Text>
-        <Text>
-          <Text bold color={ch.isNight ? 'permission' : 'suggestion'}>
-            Chapter {ch.index + 1}/{chapterCount}: {ch.name}
-          </Text>
-          <Text color="subtle">{soon === undefined ? '' : `  next: ${soon.name} in ${fmt(soon.ms)}`}</Text>
-        </Text>
-        {sceneBox}
-        <Text italic>
-          {ch.traveller[0]} {caption(t.elapsedMs)}
-        </Text>
-        {t.now !== '' && (
-          <Text color="suggestion" wrap="truncate-end">
-            ▸ Now: {t.now}
-          </Text>
-        )}
-        {counts !== '' && <Text>{counts}</Text>}
-        {files !== '' && (
-          <Text color="subtle" wrap="truncate-end">
-            ✏ Changed: {files}
-          </Text>
-        )}
-        {t.errors > 0 && (
-          <Text color="warning">
-            ⚠ {t.errors} tool {t.errors === 1 ? 'call' : 'calls'} failed. Claude usually retries; worth a glance if it climbs.
-          </Text>
-        )}
-        {todayLine}
-      </Box>
-    ) : (
-      <Box key="status" flexDirection="column" borderStyle="round" borderColor={ending.color} paddingX={1}>
-        <Text>
-          <Text bold color={ending.color}>
-            {ending.mark}
-          </Text>
-          <Text bold> in {fmt(t.elapsedMs)}</Text>
-          {t.tokens > 0 && <Text color="subtle"> · {shortTokens(t.tokens)} tokens</Text>}
-        </Text>
-        {sceneBox}
-        <Text color="subtle">
-          {ch.traveller[0]} {ch.who} made it to chapter {ch.index + 1}: {ch.name}.
-        </Text>
-        {counts !== '' && <Text>{counts}</Text>}
-        {files !== '' && (
-          <Text color="subtle" wrap="truncate-end">
-            ✏ Changed: {files}
-          </Text>
-        )}
-        {todayLine}
-      </Box>
-    )
+      ),
+    ]
 
-    const card =
-      !w.isOn || t.id === '' ? null : (
-        <Box key="wait" flexDirection="column" gap={1}>
-          {status}
-          <Box key="tip" flexDirection="column" borderStyle="round" borderColor="permission" paddingX={1}>
-            <Text>
-              <Text bold color="permission">
-                💡 Did you know?
-              </Text>
-              <Text color="subtle"> {tip.tag}</Text>
+    const status =
+      t.id === '' ? null : t.running ? (
+        <Box key="status" flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
+          <Text wrap="truncate-end">
+            <Text bold color="claude">
+              ● Claude is working
             </Text>
-            <Text>{tip.text}</Text>
-          </Box>
+            <Text bold> {fmt(t.elapsedMs)}</Text>
+            <Text color="subtle"> · {equivalent(t.elapsedMs)}</Text>
+          </Text>
+          {stageBox}
+          <Text color="subtle" italic wrap="truncate-end">
+            {'  '}
+            {buddy.name} is keeping you company
+          </Text>
+          {work}
+          {t.errors > 0 && (
+            <Text color="warning">
+              ⚠ {t.errors} failed tool {t.errors === 1 ? 'call' : 'calls'}. Claude usually retries; a glance helps if it climbs.
+            </Text>
+          )}
+          {todayLine}
+        </Box>
+      ) : (
+        <Box key="status" flexDirection="column" borderStyle="round" borderColor={ending.color} paddingX={1}>
+          <Text wrap="truncate-end">
+            <Text bold color={ending.color}>
+              {ending.mark}
+            </Text>
+            <Text bold> in {fmt(t.elapsedMs)}</Text>
+            {t.tokens > 0 && <Text color="subtle"> · {shortTokens(t.tokens)} tokens</Text>}
+          </Text>
+          {stageBox}
+          {work}
+          {todayLine}
         </Box>
       )
 
-    if (shown.length === 0 && card === null) {
-      return <Text dimColor>Nothing yet. Test runs, renders and Claude's long turns show up here.</Text>
+    // The fact sits on top and keeps three lines of room, so the card under it never jumps.
+    const tipBox = (
+      <Box key="tip" flexDirection="column" borderStyle="round" borderColor="permission" paddingX={1}>
+        <Text wrap="truncate-end">
+          <Text bold color="permission">
+            💡 Did you know?
+          </Text>
+          <Text color="subtle"> {tip.tag}</Text>
+        </Text>
+        <Box flexDirection="column" minHeight={3}>
+          <Text>{tip.text}</Text>
+        </Box>
+      </Box>
+    )
+
+    const card = !w.isOn ? null : (
+      <Box key="wait" flexDirection="column" gap={1}>
+        {tipBox}
+        {status}
+      </Box>
+    )
+
+    if (shown.length === 0 && status === null) {
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Text dimColor>Nothing yet. Test runs, renders and Claude's long turns show up here.</Text>
+          {w.isOn && tipBox}
+        </Box>
+      )
     }
 
     return (

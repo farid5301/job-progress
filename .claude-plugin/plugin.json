@@ -1,6 +1,6 @@
 {
   "name": "job-progress",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Fun live progress for test suites, Remotion/HyperFrames renders and Claude's own long turns",
   "types": "./types/index.d.ts",
   "license": "MIT"

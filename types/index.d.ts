@@ -50,10 +50,16 @@ export type Turn = {
   web: number
   helpers: number
   other: number
+  /** Tool calls that came back as errors. */
+  errors: number
+  /** Files edited this turn, newest first. */
+  files: string[]
   /** A few words on the latest tool call. */
   now: string
-  /** Presses of "Another fact". */
-  factShift: number
+  /** Why the turn ended: answer, aborted, error or refusal; "" while it runs. */
+  reason: string
+  /** Tokens the turn used, once it has ended. */
+  tokens: number
 }
 
 /** The person's switch and today's waiting, kept in the store too. */
@@ -63,12 +69,10 @@ export type Waiting = {
   todayMs: number
   todayTurns: number
   longestMs: number
-  /** Best Bug Breaker score. */
-  best?: number
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    'job-progress': { jobs: Shaped<Job[]>; turn: Shaped<Turn>; waiting: Shaped<Waiting> }
+    'job-progress': { jobs: Shaped<Job[]>; turn: Shaped<Turn>; waiting: Shaped<Waiting>; factClock: Shaped<number> }
   }
 }

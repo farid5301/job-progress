@@ -86,7 +86,7 @@ const SPINNER = {
   props: { word: 'Creating', message: null, suffix: '…', mode: 'tool-use' },
 } as const
 
-test('while Claude works, a pet hatches in the spinner and the pane counts the work', async ($, on) => {
+test('while Claude works, a journey runs in the spinner and the pane, and the pane counts the work', async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.store(on)
   mock.env(on, { TEMP: 'C:\\Temp' })
@@ -94,7 +94,11 @@ test('while Claude works, a pet hatches in the spinner and the pane counts the w
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('tool.call', () => ({ result: RAN }))
+  on('turn.complete', () => ({ text: 'done' }))
+  on('tool.call', (_, e) => ({
+    result: RAN,
+    isError: (e as { command?: string }).command === 'exit 1' ? true : undefined,
+  }))
   // Stands for the engine's own spinner: keeps the suffix the mod passed down.
   let suffix = ''
   on('ui.render', ($e, e) => {
@@ -111,28 +115,44 @@ test('while Claude works, a pet hatches in the spinner and the pane counts the w
   await $.turn.start({ text: 'make it fun', turnId: 't1' })
   await $.tool.call({ tool: 'Read', file_path: 'C:/site/index.html' })
   await $.tool.call({ tool: 'Edit', file_path: 'C:/site/index.html', old_string: 'a', new_string: 'b' })
-  // 36s: past hatching, and the spinner's turn to show the pet.
+  await $.tool.call({ tool: 'Bash', command: 'exit 1' })
+  // 36s in: chapter one, and the spinner's turn to show the traveller.
   await clock.advance(36_000)
 
   for (const surface of ['terminal', 'desktop'] as const) {
     suffix = ''
     const spin = await $.ui.mount({ ...SPINNER, surface })
-    expect(suffix).toContain('🐣')
+    expect(suffix).toContain('🐕')
     await spin.unmount()
 
     const pane = await $.ui.mount({ ...PANE, surface })
     expect((await pane.find({ type: 'Text', text: /Claude is working/ }))?.text).toContain('0:36')
+    expect((await pane.find({ type: 'Text', text: /Chapter 1/ }))?.text).toContain('Morning walk')
+    expect((await pane.find({ type: 'Text', text: /🌞/ }))?.text).toBeTruthy()
     expect((await pane.find({ type: 'Text', text: /1 read/ }))?.text).toContain('1 edited')
-    expect((await pane.find({ type: 'Text', text: /▸/ }))?.text).toContain('Editing index.html')
-    // The game runs in its own Client and plays itself until someone takes over.
-    const game = JSON.stringify(await pane.drawn({ in: 'breakout' }))
-    expect(game).toContain('SCORE')
-    expect(game).toContain('Demo mode')
-    await pane.key({ key: 'return', in: 'breakout' })
-    expect(JSON.stringify(await pane.drawn({ in: 'breakout' }))).not.toContain('Demo mode')
-
+    expect((await pane.find({ type: 'Text', text: /Now:/ }))?.text).toContain('Running exit 1')
+    expect((await pane.find({ type: 'Text', text: /Changed:/ }))?.text).toContain('index.html')
+    expect((await pane.find({ type: 'Text', text: /failed/ }))?.text).toContain('1 tool call')
     expect((await pane.find({ type: 'Text', text: /Did you know/ }))?.text).toBeTruthy()
-    await pane.press({ key: 'fact' })
     await pane.unmount()
   }
+
+  // Seven minutes on, the journey has reached the city at night.
+  await clock.advance(7 * 60_000)
+  const later = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await later.find({ type: 'Text', text: /Chapter 4/ }))?.text).toContain('City lights')
+  await later.unmount()
+
+  await $.turn.complete({
+    answer: 'done',
+    durationMs: 456_000,
+    isAborted: false,
+    turnId: 't1',
+    reason: 'answer',
+    usage: { input_tokens: 2000, output_tokens: 3000, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 0, model: 'opus' },
+  })
+  const done = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await done.find({ type: 'Text', text: /Claude is done/ }))?.text).toContain('7:36')
+  expect((await done.find({ type: 'Text', text: /tokens/ }))?.text).toContain('45k')
+  await done.unmount()
 })

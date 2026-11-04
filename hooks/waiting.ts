@@ -1,58 +1,204 @@
 import type { Turn } from '../types'
 
-// While Claude works, a pet hatches and grows: the longer the wait, the
-// bigger it gets. Each stage starts at `at` milliseconds into the turn.
-type Stage = { at: number; pet: string; short: string; line: string }
+// While Claude works, a traveller crosses a little world: the longer the wait,
+// the further the journey goes, from a morning walk to outer space. Every cell
+// of a scene row is two columns wide (an emoji, or two narrow characters), so
+// the rows keep their width as the world scrolls past.
 
-const STAGES: Stage[] = [
-  { at: 0, pet: '🥚', short: 'an egg appeared', line: 'An egg appeared. Something is moving in there.' },
-  { at: 20_000, pet: '🐣', short: 'it hatched!', line: 'It hatched! Say hi.' },
-  { at: 60_000, pet: '🐥', short: 'growing up', line: 'A chick. It is learning to code by watching.' },
-  { at: 3 * 60_000, pet: '🐔', short: 'all grown up', line: 'All grown up. Now it judges your variable names.' },
-  { at: 7 * 60_000, pet: '🦖', short: "that's no chicken", line: 'Wait… that is not a chicken.' },
-  { at: 15 * 60_000, pet: '🐉', short: "it's a dragon now", line: 'It is a dragon now. That was a long one.' },
+type Chapter = {
+  at: number
+  name: string
+  who: string
+  /** The traveller, in two frames. */
+  traveller: [string, string]
+  /** What follows the traveller, in two frames: dust, a wake, carriages. */
+  trail: [string[], string[]]
+  sky: string[]
+  /** The sun or moon, crossing the sky as the chapter goes on. */
+  light?: string
+  far: string[]
+  near: string[]
+  ground: string[]
+  groundColor: string
+  /** The traveller's row reads as the ground itself (the sea, say). */
+  nearColor?: string
+  isNight: boolean
+  lines: string[]
+}
+
+const _ = '  '
+
+const CHAPTERS: Chapter[] = [
+  {
+    at: 0,
+    name: 'Morning walk',
+    who: 'Biscuit the dog',
+    traveller: ['🐕', '🐕'],
+    trail: [['💨'], [_]],
+    sky: [_, _, '⛅', _, _, _, _, _, '⛅', _, _, _, _],
+    light: '🌞',
+    far: ['🌳', _, '🏡', _, _, '🌲', '🌳', _, _, '🌳', '🏠', _, '🌲', _, _],
+    near: [_, '🌷', _, _, _, '🌻', _, _, _, '🌼', _, _, _, '🦋', _, _],
+    ground: ['▁▁', '▁▁', '▁,', '▁▁', '.▁', '▁▁'],
+    groundColor: 'success',
+    isNight: false,
+    lines: ['is out for a morning walk', 'found a very good stick', 'sniffs every single flower', 'says the code smells nice'],
+  },
+  {
+    at: 45_000,
+    name: 'Through the forest',
+    who: 'Maple the fox',
+    traveller: ['🦊', '🦊'],
+    trail: [['🍂'], [_]],
+    sky: [_, '⛅', _, _, _, '🐦', _, _, _, _, '⛅', _, _],
+    light: '🌞',
+    far: ['🌲', '🌲', '🌳', '🌲', _, '🌲', '🌲', '🌲', '🌳', _, '🌲', '🌲'],
+    near: [_, '🍄', _, _, '🌿', _, _, _, '🦔', _, _, '🍄', _, _],
+    ground: ['▁▁', '▁▂', '▂▁', '▁▁', '▁▁'],
+    groundColor: 'success',
+    isNight: false,
+    lines: ['takes the scenic route', 'waves at a hedgehog', 'knows a shortcut, probably', 'is deep in the woods'],
+  },
+  {
+    at: 2 * 60_000,
+    name: 'Along the coast',
+    who: 'Captain Sal',
+    traveller: ['⛵', '⛵'],
+    trail: [[' ~', '~ '], ['~ ', ' ~']],
+    sky: [_, '🐦', _, _, '⛅', _, _, _, '🐦', _, _, _, _],
+    light: '🌞',
+    far: [_, _, '🐳', _, _, _, _, '🌴', _, _, '🐬', _, _, _, _],
+    near: ['≈≈', '~≈', '≈~', '≈≈', '≈≈', '~≈'],
+    nearColor: 'suggestion',
+    ground: [_, '🐠', _, _, _, _, '🐚', _, _, '🐟', _, _, _, '🦀', _],
+    groundColor: 'suggestion',
+    isNight: false,
+    lines: ['sails past a whale', 'is racing a dolphin', 'reports smooth sailing', 'can see land, sort of'],
+  },
+  {
+    at: 5 * 60_000,
+    name: 'City lights',
+    who: 'Rita the taxi',
+    traveller: ['🚕', '🚕'],
+    trail: [['💨'], [_]],
+    sky: [_, '⭐', _, _, _, '✨', _, _, '⭐', _, _, _, _, '✨'],
+    light: '🌙',
+    far: ['🏢', '🏬', _, '🏢', '🏨', '🏦', _, '🏢', '🏪', '🏬', _, '🏢'],
+    near: [_, _, '🚦', _, _, _, _, _, '🌳', _, _, _, _, '🚏', _],
+    ground: ['━━', '━━', _, '━━', '━━', _],
+    groundColor: 'subtle',
+    isNight: true,
+    lines: ['takes the long way through town', 'gets every green light', 'knows the city never sleeps', 'keeps the meter running'],
+  },
+  {
+    at: 10 * 60_000,
+    name: 'Over the mountains',
+    who: 'The night express',
+    traveller: ['🚂', '🚂'],
+    trail: [['🚃', '🚃'], ['🚃', '🚃']],
+    sky: [_, '⭐', _, _, _, _, '⭐', _, _, '✨', _, _, _],
+    light: '🌕',
+    far: ['🗻', _, _, '🗻', '🌲', _, '🗻', _, _, '🌲', '🗻', _],
+    near: [_, '🌲', _, _, _, _, '🌲', '🌲', _, _, _, _],
+    ground: ['==', '=+', '=='],
+    groundColor: 'subtle',
+    isNight: true,
+    lines: ['is a long one. Stretch your legs?', 'climbs, and so does the token count', 'has a dining car, just saying', 'is right on schedule, somehow'],
+  },
+  {
+    at: 20 * 60_000,
+    name: 'Into space',
+    who: 'Cosmo the rocket',
+    traveller: ['🚀', '🚀'],
+    trail: [['🔥'], ['💨']],
+    sky: [_, '⭐', _, _, '✨', _, _, _, '⭐', _, _, '✨', _],
+    far: [_, '🪐', _, _, _, _, _, '🌍', _, _, _, _, '🛸', _, _, _],
+    near: [_, _, _, '✨', _, _, _, _, _, '🌠', _],
+    ground: ['. ', _, ' .', _, _],
+    groundColor: 'subtle',
+    isNight: true,
+    lines: ['has left the atmosphere', 'says Houston, this is a big job', 'reports that space is very big', 'waves from orbit'],
+  },
 ]
 
-// After the last stage the dragon flies laps of this length.
-const LAP_MS = 15 * 60_000
+// After the last chapter the journey loops through space in laps of this length.
+const LAP_MS = 10 * 60_000
 
-export const stage = (ms: number): Stage => {
-  let found = STAGES[0] as Stage
+export const chapter = (ms: number): Chapter & { index: number } => {
+  let index = 0
 
-  for (const one of STAGES) {
+  CHAPTERS.forEach((one, i) => {
     if (ms >= one.at) {
-      found = one
+      index = i
+    }
+  })
+
+  return { ...(CHAPTERS[index] as Chapter), index }
+}
+
+export const chapterCount = CHAPTERS.length
+
+const progressIn = (ms: number): number => {
+  const now = chapter(ms)
+  const next = CHAPTERS[now.index + 1]
+
+  return next === undefined ? ((ms - now.at) % LAP_MS) / LAP_MS : (ms - now.at) / (next.at - now.at)
+}
+
+/** What comes next and when, for the line under the scene. */
+export const untilNext = (ms: number): { name: string; ms: number } | undefined => {
+  const next = CHAPTERS[chapter(ms).index + 1]
+
+  return next === undefined ? undefined : { name: next.name, ms: next.at - ms }
+}
+
+const windowed = (pattern: string[], offset: number, n: number): string[] =>
+  Array.from({ length: n }, (_x, i) => pattern[(((i - offset) % pattern.length) + pattern.length) % pattern.length] ?? _)
+
+export type SceneRow = { text: string; color?: string }
+
+/**
+ * The world at this moment, four rows tall: sky, far away, the traveller's
+ * row and the ground. Far things drift slower than near ones, the sun or moon
+ * crosses the sky over the chapter, and stars twinkle at night.
+ */
+export const scene = (ms: number, cells: number): SceneRow[] => {
+  const ch = chapter(ms)
+  const n = Math.max(8, Math.min(24, cells))
+  const frame = Math.floor(ms / 500)
+
+  const sky = windowed(ch.sky, Math.floor(frame / 8), n).map((cell, i) =>
+    ch.isNight && cell === '⭐' && (i + Math.floor(frame / 2)) % 3 === 0 ? '✨' : cell,
+  )
+  if (ch.light !== undefined) {
+    sky[Math.min(n - 1, Math.floor(progressIn(ms) * n))] = ch.light
+  }
+  const far = windowed(ch.far, Math.floor(frame / 3), n)
+  const near = windowed(ch.near, frame, n)
+  const ground = windowed(ch.ground, frame, n)
+
+  // The world scrolls right, so the traveller heads left, the way most emoji face.
+  const at = Math.floor(n / 3)
+  near[at] = ch.traveller[frame % 2] ?? ch.traveller[0]
+  for (const [i, cell] of (ch.trail[frame % 2] ?? []).entries()) {
+    if (at + 1 + i < n) {
+      near[at + 1 + i] = cell
     }
   }
 
-  return found
+  return [
+    { text: sky.join(''), color: ch.isNight ? 'warning' : 'subtle' },
+    { text: far.join('') },
+    { text: near.join(''), color: ch.nearColor },
+    { text: ground.join(''), color: ch.groundColor },
+  ]
 }
 
-const nextStage = (ms: number): Stage | undefined => STAGES.find(one => one.at > ms)
+/** "Biscuit the dog found a very good stick", changing every 8 seconds. */
+export const caption = (ms: number): string => {
+  const ch = chapter(ms)
 
-/** The pet walks toward what it grows into next; the walk ends as it does. */
-export const walk = (ms: number, cells: number): string => {
-  const now = stage(ms)
-  const next = nextStage(ms)
-  const n = Math.max(4, cells)
-  const last = n - 1
-  const share = next === undefined ? ((ms - now.at) % LAP_MS) / LAP_MS : (ms - now.at) / (next.at - now.at)
-  const pos = Math.min(last - 1, Math.floor(share * last))
-  const out: string[] = []
-
-  for (let i = 0; i < last; i++) {
-    out.push(i === pos ? now.pet : i < pos ? '  ' : '· ')
-  }
-  out.push(next?.pet ?? '🏰')
-
-  return out.join('')
-}
-
-/** When the pet grows next, for the line under the walk. */
-export const untilNext = (ms: number): string | undefined => {
-  const next = nextStage(ms)
-
-  return next === undefined ? undefined : `${next.pet} in ${Math.ceil((next.at - ms) / 1000)}s`
+  return `${ch.who} ${ch.lines[Math.floor(ms / 8000) % ch.lines.length] ?? ''}`
 }
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -87,14 +233,17 @@ const base = (path: unknown): string =>
 const clip = (text: string, n: number): string => (text.length > n ? `${text.slice(0, n - 1)}…` : text)
 
 /** What kind of work a tool call is, and a few words on what it is doing. */
-export const describeTool = (tool: string, input: Record<string, unknown>): { kind: ToolKind; now: string } => {
+export const describeTool = (
+  tool: string,
+  input: Record<string, unknown>,
+): { kind: ToolKind; now: string; file?: string } => {
   const file = base(input.file_path ?? input.notebook_path ?? input.path)
 
   if (tool === 'Read' || tool === 'NotebookRead') {
     return { kind: 'reads', now: `Reading ${file}` }
   }
   if (tool === 'Edit' || tool === 'Write' || tool === 'MultiEdit' || tool === 'NotebookEdit') {
-    return { kind: 'edits', now: `${tool === 'Write' ? 'Writing' : 'Editing'} ${file}` }
+    return { kind: 'edits', now: `${tool === 'Write' ? 'Writing' : 'Editing'} ${file}`, file }
   }
   if (tool === 'Bash' || tool === 'PowerShell') {
     const command = String(input.command ?? '')
@@ -126,6 +275,7 @@ export const tally = (t: Turn): string =>
     t.web > 0 ? `🌐 ${t.web} web` : '',
     t.helpers > 0 ? `🤝 ${plural(t.helpers, 'helper', 'helpers')}` : '',
     t.other > 0 ? `🧰 ${t.other} other` : '',
+    t.errors > 0 ? `⚠ ${plural(t.errors, 'error', 'errors')}` : '',
   ]
     .filter(part => part !== '')
     .join(' · ')
@@ -184,18 +334,14 @@ const FACTS: Fact[] = [
   { tag: CODE, icon: '💻', text: 'Git was started by Linus Torvalds in 2005, in a matter of days.' },
 ]
 
-/** A fact that changes every 20 seconds, or when the person asks for another. */
-export const fact = (t: Turn): Fact => {
-  const at = Math.floor(t.elapsedMs / 20_000) + t.factShift + t.startedAt
+/** The fact for a turn of the fact clock, which moves every 15 seconds. */
+export const fact = (index: number): Fact => FACTS[Math.abs(index) % FACTS.length] as Fact
 
-  return FACTS[Math.abs(at) % FACTS.length] as Fact
-}
-
-/** The words after the spinner's own: the pet, the wait in tea, or the tally, in turn. */
+/** The words after the spinner's own: where the journey is, the wait in tea, or the tally, in turn. */
 export const spinnerText = (t: Turn): string => {
-  const now = stage(t.elapsedMs)
+  const ch = chapter(t.elapsedMs)
   const counts = tally(t)
-  const options = [`${now.pet} ${now.short}`, `≈ ${equivalent(t.elapsedMs)}`]
+  const options = [`${ch.traveller[0]} ${ch.name.toLowerCase()}`, `≈ ${equivalent(t.elapsedMs)}`]
 
   if (counts !== '') {
     options.push(counts)
@@ -203,6 +349,10 @@ export const spinnerText = (t: Turn): string => {
 
   return options[Math.floor(t.elapsedMs / 6000) % options.length] ?? ''
 }
+
+/** Remembers an edited file, newest first, each once. */
+export const noteFile = (files: string[], file: string): string[] =>
+  file === '' ? files : [file, ...files.filter(one => one !== file)].slice(0, 8)
 
 export const emptyTurn = (): Turn => ({
   id: '',
@@ -216,6 +366,9 @@ export const emptyTurn = (): Turn => ({
   web: 0,
   helpers: 0,
   other: 0,
+  errors: 0,
+  files: [],
   now: '',
-  factShift: 0,
+  reason: '',
+  tokens: 0,
 })

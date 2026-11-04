@@ -4,7 +4,20 @@ import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 import type { Job, JobStatus, Waiting } from '../types'
 import { clock, family, fmt, isTheme, left, parseDuration, pickTheme, quip, themeNames, track as scene } from './fun'
 import { DONE, detect, exitCode, parse } from './parse'
-import { describeTool, emptyTurn, equivalent, fact, spinnerText, stage, tally, untilNext, walk } from './waiting'
+import {
+  caption,
+  chapter,
+  chapterCount,
+  describeTool,
+  emptyTurn,
+  equivalent,
+  fact,
+  noteFile,
+  scene as world,
+  spinnerText,
+  tally,
+  untilNext,
+} from './waiting'
 
 const PANE = 'job-progress'
 const KEEP = 12
@@ -16,7 +29,10 @@ const jobs = atom({ plugin: 'job-progress', key: 'jobs' } as const, [], {
   shape: 'jobs-2',
 })
 
-const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-2' })
+const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-3' })
+
+// Moves every 15 seconds, so the fact in the pane changes whether Claude is working or not.
+const factClock = atom({ plugin: 'job-progress', key: 'factClock' } as const, 0, { shape: 'facts-1' })
 
 const NO_WAITING: Waiting = { isOn: true, day: '', todayMs: 0, todayTurns: 0, longestMs: 0 }
 const waiting = atom({ plugin: 'job-progress', key: 'waiting' } as const, NO_WAITING, { shape: 'waiting-1' })
@@ -263,20 +279,32 @@ const noteTool = async ($: EngineInterface, tool: string, input: Record<string, 
   if (!(await read($, turn)).running) {
     return
   }
-  const { kind, now } = describeTool(tool, input)
+  const { kind, now, file } = describeTool(tool, input)
 
-  await update($, turn, one => (one.running ? { ...one, [kind]: one[kind] + 1, now } : one))
+  await update($, turn, one =>
+    one.running ? { ...one, [kind]: one[kind] + 1, now, files: noteFile(one.files, file ?? '') } : one,
+  )
 }
 
-const endTurn = async ($: EngineInterface, id: string, durationMs: number): Promise<void> => {
+const noteError = async ($: EngineInterface): Promise<void> => {
+  await update($, turn, one => (one.running ? { ...one, errors: one.errors + 1 } : one))
+}
+
+type Ending = { durationMs: number; reason: string; tokens: number }
+
+const endTurn = async ($: EngineInterface, id: string, end: Ending): Promise<void> => {
   const t = await read($, turn)
 
   if (!t.running || t.id !== id) {
     return
   }
   const now = await $.clock.now()
-  const elapsedMs = durationMs > 0 ? durationMs : now - t.startedAt
-  await update($, turn, one => (one.id === id ? { ...one, running: false, elapsedMs, now: '' } : one))
+  const elapsedMs = end.durationMs > 0 ? end.durationMs : now - t.startedAt
+  await update($, turn, one =>
+    one.id === id
+      ? { ...one, running: false, elapsedMs, now: '', reason: end.reason, tokens: end.tokens }
+      : one,
+  )
 
   const day = today(now)
   const before = await read($, waiting)
@@ -291,12 +319,16 @@ const endTurn = async ($: EngineInterface, id: string, durationMs: number): Prom
   await $.store.set('waiting', after)
 
   if (after.isOn && elapsedMs >= 90_000) {
+    const files = t.files.length > 0 ? ` · ${t.files.length} ${t.files.length === 1 ? 'file' : 'files'} changed` : ''
+    const errors = t.errors > 0 ? ` · ${t.errors} tool ${t.errors === 1 ? 'error' : 'errors'}` : ''
     $.ui.toast(
-      `Claude is done after ${fmt(elapsedMs)}, ${equivalent(elapsedMs)}. Your ${stage(elapsedMs).pet} says hi.`,
+      `${end.reason === 'aborted' ? 'Stopped' : 'Claude is done'} after ${fmt(elapsedMs)}${files}${errors}. ${chapter(elapsedMs).who} made it to ${chapter(elapsedMs).name.toLowerCase()}.`,
       { timeoutMs: 10_000 },
     )
   }
 }
+
+const shortTokens = (n: number): string => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
 
 const track = async (
   $: EngineInterface,
@@ -388,9 +420,15 @@ export const register: Register = on => {
       await update($, waiting, () => ({ ...NO_WAITING, ...saved }))
     }
 
-    $.clock.every(1000, async () => {
-      await tickTurn($)
+    // Start the facts somewhere new each session, then move them along every 15 seconds.
+    const startAt = Math.floor((await $.clock.now()) / 15_000)
+    await update($, factClock, () => startAt)
+    $.clock.every(15_000, () => update($, factClock, n => n + 1))
 
+    // Twice a second, so the scene in the pane moves smoothly.
+    $.clock.every(500, () => tickTurn($))
+
+    $.clock.every(1000, async () => {
       const running = (await read($, jobs)).filter(job => job.status === 'running')
 
       if (running.length === 0) {
@@ -437,8 +475,8 @@ export const register: Register = on => {
 
       return {
         text: isOn
-          ? 'Waiting is fun again: a pet hatches while Claude works.'
-          : 'The waiting pet is off. /jobs fun on brings it back.',
+          ? 'The waiting journey is back on while Claude works.'
+          : 'The waiting journey is off. /jobs fun on brings it back.',
       }
     }
 
@@ -463,11 +501,11 @@ export const register: Register = on => {
     await $.ui.open({ id: PANE, title: 'Progress' })
 
     return {
-      text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the scene; /jobs fun off hides the waiting pet.',
+      text: 'Progress pane opened.  /jobs eta 20m sets the time left; /jobs theme rocket changes the scene; /jobs fun off hides the waiting journey.',
     }
   })
 
-  // Claude's own turns, on the main loop: a pet hatches and grows while it works.
+  // Claude's own turns, on the main loop: a traveller's journey runs while it works.
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
       await startTurn($, e.turnId)
@@ -480,31 +518,27 @@ export const register: Register = on => {
     const out = await next(e)
 
     if (e.agentId === undefined) {
-      await endTurn($, e.turnId, e.durationMs)
+      const u = e.usage
+      const tokens =
+        u === undefined
+          ? 0
+          : u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+      await endTurn($, e.turnId, { durationMs: e.durationMs, reason: e.reason, tokens })
     }
 
     return out
   })
 
-  // Counts what Claude does during the turn; the call itself is never changed.
+  // Counts what Claude does during the turn and which calls fail; the call itself is never changed.
   on('tool.call', async ($, e, next) => {
     await noteTool($, e.tool, e as unknown as Record<string, unknown>).catch(() => undefined)
+    const out = await next(e)
 
-    return next(e)
-  })
-
-  // The game posts a new best score when a game ends; keep it across sessions.
-  on('ui.message', async ($, e, next) => {
-    const best = (e.data as { best?: unknown } | null)?.best
-
-    if (e.element === 'breakout' && typeof best === 'number') {
-      const after = { ...(await read($, waiting)) }
-      after.best = Math.max(after.best ?? 0, best)
-      await update($, waiting, () => after)
-      await $.store.set('waiting', after)
+    if (out.isError === true) {
+      await noteError($).catch(() => undefined)
     }
 
-    return next(e)
+    return out
   })
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
@@ -526,31 +560,50 @@ export const register: Register = on => {
   ).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const ui = $.ui.resolve(e)
-    const { Box, Button, Text } = ui
-    // The game needs a Client: the terminal and the desktop draw one, vscode and mobile do not.
-    const Client = 'Client' in ui ? ui.Client : undefined
+    const { Box, Button, Text } = $.ui.resolve(e)
     const list = await read($, jobs)
     const running = list.filter(job => job.status === 'running').reverse()
     const finished = list.filter(job => job.status !== 'running').reverse().slice(0, KEEP)
     const shown = [...running, ...finished]
     const columns = e.props.bodyColumns ?? 40
     const cells = Math.max(6, Math.min(22, Math.floor((columns - 2) / 2)))
-    const inCard = Math.max(6, Math.min(22, Math.floor((columns - 6) / 2)))
+    const inCard = Math.max(8, Math.min(24, Math.floor((columns - 4) / 2)))
 
     const t = await read($, turn)
     const w = await read($, waiting)
-    const pet = stage(t.elapsedMs).pet
+    const tip = fact(await read($, factClock))
+    const ch = chapter(t.elapsedMs)
     const soon = untilNext(t.elapsedMs)
     const counts = tally(t)
     const isToday = w.day === today(await $.clock.now()) && w.todayTurns > 0
-    const tip = fact(t)
+    const files =
+      t.files.length === 0
+        ? ''
+        : `${t.files.slice(0, 3).join(', ')}${t.files.length > 3 ? ` +${t.files.length - 3} more` : ''}`
+
     const todayLine = isToday && (
       <Text color="subtle">
-        Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} of waiting, longest{' '}
-        {fmt(w.longestMs)}
+        📊 Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} waiting, typical{' '}
+        {fmt(w.todayMs / w.todayTurns)}, longest {fmt(w.longestMs)}
       </Text>
     )
+
+    const sceneBox = (
+      <Box key="scene" flexDirection="column" borderStyle="round" borderColor={ch.isNight ? 'permission' : 'suggestion'}>
+        {world(t.elapsedMs, inCard).map((row, i) => (
+          <Text key={`row${i}`} mono color={row.color}>
+            {row.text}
+          </Text>
+        ))}
+      </Box>
+    )
+
+    const ending =
+      t.reason === 'aborted'
+        ? { mark: '■ Stopped', color: 'warning' }
+        : t.reason === 'error' || t.reason === 'refusal'
+          ? { mark: '✖ Ended early', color: 'error' }
+          : { mark: '✓ Claude is done', color: 'success' }
 
     const status = t.running ? (
       <Box key="status" flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
@@ -558,33 +611,56 @@ export const register: Register = on => {
           <Text bold color="claude">
             ● Claude is working
           </Text>
-          <Text color="subtle"> {fmt(t.elapsedMs)}</Text>
+          <Text bold> {fmt(t.elapsedMs)}</Text>
+          <Text color="subtle"> · {equivalent(t.elapsedMs)}</Text>
         </Text>
-        <Text>{walk(t.elapsedMs, inCard)}</Text>
         <Text>
-          {stage(t.elapsedMs).line}
-          <Text color="subtle">{soon === undefined ? '' : `  next ${soon}`}</Text>
+          <Text bold color={ch.isNight ? 'permission' : 'suggestion'}>
+            Chapter {ch.index + 1}/{chapterCount}: {ch.name}
+          </Text>
+          <Text color="subtle">{soon === undefined ? '' : `  next: ${soon.name} in ${fmt(soon.ms)}`}</Text>
         </Text>
-        <Text color="subtle">⏱ That's {equivalent(t.elapsedMs)}</Text>
-        {counts !== '' && <Text>{counts}</Text>}
+        {sceneBox}
+        <Text italic>
+          {ch.traveller[0]} {caption(t.elapsedMs)}
+        </Text>
         {t.now !== '' && (
           <Text color="suggestion" wrap="truncate-end">
-            ▸ {t.now}
+            ▸ Now: {t.now}
+          </Text>
+        )}
+        {counts !== '' && <Text>{counts}</Text>}
+        {files !== '' && (
+          <Text color="subtle" wrap="truncate-end">
+            ✏ Changed: {files}
+          </Text>
+        )}
+        {t.errors > 0 && (
+          <Text color="warning">
+            ⚠ {t.errors} tool {t.errors === 1 ? 'call' : 'calls'} failed. Claude usually retries; worth a glance if it climbs.
           </Text>
         )}
         {todayLine}
       </Box>
     ) : (
-      <Box key="status" flexDirection="column" borderStyle="round" borderColor="success" paddingX={1}>
+      <Box key="status" flexDirection="column" borderStyle="round" borderColor={ending.color} paddingX={1}>
         <Text>
-          <Text bold color="success">
-            ✓ Claude is done
+          <Text bold color={ending.color}>
+            {ending.mark}
           </Text>
-          <Text color="subtle"> last wait {fmt(t.elapsedMs)}</Text>
+          <Text bold> in {fmt(t.elapsedMs)}</Text>
+          {t.tokens > 0 && <Text color="subtle"> · {shortTokens(t.tokens)} tokens</Text>}
         </Text>
+        {sceneBox}
         <Text color="subtle">
-          That was {equivalent(t.elapsedMs)}. Your {pet} is napping.
+          {ch.traveller[0]} {ch.who} made it to chapter {ch.index + 1}: {ch.name}.
         </Text>
+        {counts !== '' && <Text>{counts}</Text>}
+        {files !== '' && (
+          <Text color="subtle" wrap="truncate-end">
+            ✏ Changed: {files}
+          </Text>
+        )}
         {todayLine}
       </Box>
     )
@@ -593,23 +669,6 @@ export const register: Register = on => {
       !w.isOn || t.id === '' ? null : (
         <Box key="wait" flexDirection="column" gap={1}>
           {status}
-          {Client !== undefined && (
-            <Box key="game" flexDirection="column" borderStyle="round" borderColor="suggestion" paddingX={1}>
-              <Text>
-                <Text bold color="suggestion">
-                  🎮 Bug Breaker
-                </Text>
-                <Text color="subtle"> clear the blockers while you wait</Text>
-              </Text>
-              <Client
-                key="breakout"
-                module="./breakout.tsx"
-                props={{ running: t.running, best: w.best ?? 0 }}
-                width="100%"
-                height={17}
-              />
-            </Box>
-          )}
           <Box key="tip" flexDirection="column" borderStyle="round" borderColor="permission" paddingX={1}>
             <Text>
               <Text bold color="permission">
@@ -618,11 +677,6 @@ export const register: Register = on => {
               <Text color="subtle"> {tip.tag}</Text>
             </Text>
             <Text>{tip.text}</Text>
-            <Button
-              key="fact"
-              label="Another fact →"
-              onPress={() => update($, turn, one => ({ ...one, factShift: one.factShift + 1 }))}
-            />
           </Box>
         </Box>
       )

@@ -52,10 +52,8 @@ export type Turn = {
   other: number
   /** A few words on the latest tool call. */
   now: string
-  /** Presses of "New fact". */
+  /** Presses of "Another fact". */
   factShift: number
-  /** Presses of "Feed it". */
-  feeds: number
 }
 
 /** The person's switch and today's waiting, kept in the store too. */
@@ -65,6 +63,8 @@ export type Waiting = {
   todayMs: number
   todayTurns: number
   longestMs: number
+  /** Best Bug Breaker score. */
+  best?: number
 }
 
 declare module 'claude-code' {

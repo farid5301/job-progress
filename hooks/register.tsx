@@ -16,7 +16,7 @@ const jobs = atom({ plugin: 'job-progress', key: 'jobs' } as const, [], {
   shape: 'jobs-2',
 })
 
-const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-1' })
+const turn = atom({ plugin: 'job-progress', key: 'turn' } as const, emptyTurn(), { shape: 'turn-2' })
 
 const NO_WAITING: Waiting = { isOn: true, day: '', todayMs: 0, todayTurns: 0, longestMs: 0 }
 const waiting = atom({ plugin: 'job-progress', key: 'waiting' } as const, NO_WAITING, { shape: 'waiting-1' })
@@ -493,6 +493,20 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The game posts a new best score when a game ends; keep it across sessions.
+  on('ui.message', async ($, e, next) => {
+    const best = (e.data as { best?: unknown } | null)?.best
+
+    if (e.element === 'breakout' && typeof best === 'number') {
+      const after = { ...(await read($, waiting)) }
+      after.best = Math.max(after.best ?? 0, best)
+      await update($, waiting, () => after)
+      await $.store.set('waiting', after)
+    }
+
+    return next(e)
+  })
+
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const t = await read($, turn)
 
@@ -512,12 +526,17 @@ export const register: Register = on => {
   ).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Button, Text } = ui
+    // The game needs a Client: the terminal and the desktop draw one, vscode and mobile do not.
+    const Client = 'Client' in ui ? ui.Client : undefined
     const list = await read($, jobs)
     const running = list.filter(job => job.status === 'running').reverse()
     const finished = list.filter(job => job.status !== 'running').reverse().slice(0, KEEP)
     const shown = [...running, ...finished]
-    const cells = Math.max(6, Math.min(22, Math.floor(((e.props.bodyColumns ?? 40) - 2) / 2)))
+    const columns = e.props.bodyColumns ?? 40
+    const cells = Math.max(6, Math.min(22, Math.floor((columns - 2) / 2)))
+    const inCard = Math.max(6, Math.min(22, Math.floor((columns - 6) / 2)))
 
     const t = await read($, turn)
     const w = await read($, waiting)
@@ -525,65 +544,88 @@ export const register: Register = on => {
     const soon = untilNext(t.elapsedMs)
     const counts = tally(t)
     const isToday = w.day === today(await $.clock.now()) && w.todayTurns > 0
-    const REACTIONS = ['Yum!', 'Burp.', 'More please!', 'It does a little dance.', 'It is getting chubby.']
+    const tip = fact(t)
+    const todayLine = isToday && (
+      <Text color="subtle">
+        Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} of waiting, longest{' '}
+        {fmt(w.longestMs)}
+      </Text>
+    )
 
-    const card = !w.isOn ? null : t.running ? (
-      <Box key="wait" flexDirection="column">
+    const status = t.running ? (
+      <Box key="status" flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
         <Text>
-          <Text bold color="magenta">
-            Claude is working
+          <Text bold color="claude">
+            ● Claude is working
           </Text>
-          <Text dimColor> · {fmt(t.elapsedMs)}</Text>
+          <Text color="subtle"> {fmt(t.elapsedMs)}</Text>
         </Text>
-        <Text>{walk(t.elapsedMs, cells)}</Text>
+        <Text>{walk(t.elapsedMs, inCard)}</Text>
         <Text>
           {stage(t.elapsedMs).line}
-          <Text dimColor>{soon === undefined ? '' : `  next: ${soon}`}</Text>
+          <Text color="subtle">{soon === undefined ? '' : `  next ${soon}`}</Text>
         </Text>
-        <Text dimColor>⏱ That's {equivalent(t.elapsedMs)}</Text>
+        <Text color="subtle">⏱ That's {equivalent(t.elapsedMs)}</Text>
         {counts !== '' && <Text>{counts}</Text>}
         {t.now !== '' && (
-          <Text dimColor wrap="truncate-end">
-            Now: {t.now}
+          <Text color="suggestion" wrap="truncate-end">
+            ▸ {t.now}
           </Text>
         )}
-        <Text color="yellow">💡 {fact(t)}</Text>
-        <Box flexDirection="row" gap={1}>
-          <Button
-            key="fact"
-            label="🥠 New fact"
-            onPress={() => update($, turn, one => ({ ...one, factShift: one.factShift + 1 }))}
-          />
-          <Button
-            key="feed"
-            label={`🍖 Feed the ${pet}`}
-            onPress={() => update($, turn, one => ({ ...one, feeds: one.feeds + 1 }))}
-          />
-        </Box>
-        {t.feeds > 0 && (
-          <Text dimColor>
-            {pet} {REACTIONS[(t.feeds - 1) % REACTIONS.length]} Fed {t.feeds} {t.feeds === 1 ? 'time' : 'times'}.
-          </Text>
-        )}
-        {isToday && (
-          <Text dimColor>
-            Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} of waiting, longest{' '}
-            {fmt(w.longestMs)}
-          </Text>
-        )}
+        {todayLine}
       </Box>
-    ) : t.id !== '' ? (
-      <Box key="wait" flexDirection="column">
-        <Text dimColor>
-          Last wait {fmt(t.elapsedMs)}, {equivalent(t.elapsedMs)}. Your {pet} is napping.
+    ) : (
+      <Box key="status" flexDirection="column" borderStyle="round" borderColor="success" paddingX={1}>
+        <Text>
+          <Text bold color="success">
+            ✓ Claude is done
+          </Text>
+          <Text color="subtle"> last wait {fmt(t.elapsedMs)}</Text>
         </Text>
-        {isToday && (
-          <Text dimColor>
-            Today: {w.todayTurns} {w.todayTurns === 1 ? 'turn' : 'turns'}, {fmt(w.todayMs)} of waiting
-          </Text>
-        )}
+        <Text color="subtle">
+          That was {equivalent(t.elapsedMs)}. Your {pet} is napping.
+        </Text>
+        {todayLine}
       </Box>
-    ) : null
+    )
+
+    const card =
+      !w.isOn || t.id === '' ? null : (
+        <Box key="wait" flexDirection="column" gap={1}>
+          {status}
+          {Client !== undefined && (
+            <Box key="game" flexDirection="column" borderStyle="round" borderColor="suggestion" paddingX={1}>
+              <Text>
+                <Text bold color="suggestion">
+                  🎮 Bug Breaker
+                </Text>
+                <Text color="subtle"> clear the blockers while you wait</Text>
+              </Text>
+              <Client
+                key="breakout"
+                module="./breakout.tsx"
+                props={{ running: t.running, best: w.best ?? 0 }}
+                width="100%"
+                height={17}
+              />
+            </Box>
+          )}
+          <Box key="tip" flexDirection="column" borderStyle="round" borderColor="permission" paddingX={1}>
+            <Text>
+              <Text bold color="permission">
+                💡 Did you know?
+              </Text>
+              <Text color="subtle"> {tip.tag}</Text>
+            </Text>
+            <Text>{tip.text}</Text>
+            <Button
+              key="fact"
+              label="Another fact →"
+              onPress={() => update($, turn, one => ({ ...one, factShift: one.factShift + 1 }))}
+            />
+          </Box>
+        </Box>
+      )
 
     if (shown.length === 0 && card === null) {
       return <Text dimColor>Nothing yet. Test runs, renders and Claude's long turns show up here.</Text>

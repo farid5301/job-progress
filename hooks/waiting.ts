@@ -130,46 +130,65 @@ export const tally = (t: Turn): string =>
     .filter(part => part !== '')
     .join(' · ')
 
-const FACTS = [
-  'Octopuses have three hearts.',
-  'Bananas are berries. Strawberries are not.',
-  'A day on Venus is longer than its year.',
-  'Wombat poop is cube-shaped.',
-  'Sharks are older than trees.',
-  'Sea otters hold hands while they sleep.',
-  'A group of flamingos is called a flamboyance.',
-  'The first computer bug was a real moth, taped into a logbook in 1947.',
-  'There are more possible chess games than atoms in the observable universe.',
-  'Sunlight takes about 8 minutes to reach Earth.',
-  'Koala fingerprints are almost identical to human ones.',
-  'The shortest war on record lasted about 38 minutes.',
-  'Butterflies taste with their feet.',
-  'Pluto has not finished one orbit since it was discovered in 1930.',
-  'The dot over a lowercase i is called a tittle.',
-  "The unicorn is Scotland's national animal.",
-  'Saturn is less dense than water.',
-  'Lightning is about five times hotter than the surface of the Sun.',
-  'Crows can recognise human faces and remember them for years.',
-  'Oxford University is older than the Aztec Empire.',
-  'The first webcam watched a coffee pot at Cambridge University.',
-  'Venus spins the opposite way to most planets.',
-  'A teaspoon of neutron star would weigh billions of tonnes.',
-  'Bluetooth is named after a 10th-century Danish king.',
-  'The QWERTY keyboard layout dates from the 1870s.',
-  'Python is named after Monty Python, not the snake.',
-  'JavaScript was written in about ten days in 1995.',
-  'Git was started by Linus Torvalds in 2005.',
-  'The first email was sent in 1971.',
-  'Cats sleep for about two-thirds of their lives.',
-  'Some turtles can breathe through their rear ends.',
-  'Honey kept sealed can stay edible for thousands of years.',
+export type Fact = { tag: string; icon: string; text: string }
+
+const SCHEDULING = '📅 Scheduling'
+const PM = '📋 Project management'
+const SCIENCE = '🔬 Science'
+const CODE = '💻 Code'
+
+const FACTS: Fact[] = [
+  // Scheduling
+  { tag: SCHEDULING, icon: '📅', text: 'The Critical Path Method was developed in 1957 by DuPont and Remington Rand to plan plant shutdowns.' },
+  { tag: SCHEDULING, icon: '📅', text: 'PERT was created in 1958 for the US Navy’s Polaris missile programme.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Karol Adamiecki drew a bar chart schedule in 1896, years before Henry Gantt’s famous chart.' },
+  { tag: SCHEDULING, icon: '📅', text: 'A task with zero total float is on the critical path: one day late there is one day late at the finish.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Merge bias: where several paths meet, the odds of starting on time drop, which is why risk-run (Monte Carlo) dates land later than CPM dates.' },
+  { tag: SCHEDULING, icon: '📅', text: 'The DCMA 14-point check flags a schedule when more than 5% of its tasks carry over 44 working days of float.' },
+  { tag: SCHEDULING, icon: '📅', text: 'A lag is a wait between tasks. Use it for concrete curing, not as a hidden buffer: hidden time is the first time to vanish.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Hofstadter’s Law: it always takes longer than you expect, even when you take Hofstadter’s Law into account.' },
+  { tag: SCHEDULING, icon: '📅', text: 'The word "deadline" first meant a line around a Civil War prison camp that prisoners must not cross.' },
+  { tag: SCHEDULING, icon: '📅', text: 'Student syndrome: people start a task at the last moment its float allows. Critical chain moves that float into one shared buffer.' },
+  { tag: SCHEDULING, icon: '📅', text: 'The cone of uncertainty: an estimate made at the idea stage can be off by a factor of four either way.' },
+  { tag: SCHEDULING, icon: '📅', text: 'The planning fallacy, our habit of underestimating our own tasks, was named by Kahneman and Tversky in 1979.' },
+  // Project management
+  { tag: PM, icon: '📋', text: 'Brooks’s Law: adding people to a late software project makes it later.' },
+  { tag: PM, icon: '📋', text: 'Parkinson’s Law: work expands to fill the time available for its completion.' },
+  { tag: PM, icon: '📋', text: 'The Sydney Opera House was planned for 4 years and A$7 million. It took 14 years and A$102 million.' },
+  { tag: PM, icon: '📋', text: 'The Empire State Building went up in about 13 months, ahead of schedule and under budget.' },
+  { tag: PM, icon: '📋', text: 'Berlin Brandenburg Airport opened in 2020, nine years later than planned.' },
+  { tag: PM, icon: '📋', text: 'Bent Flyvbjerg found only about 0.5% of big projects finish on budget, on time and with the benefits promised.' },
+  { tag: PM, icon: '📋', text: 'The Pentagon, then the largest office building in the world, was built in about 16 months.' },
+  { tag: PM, icon: '📋', text: 'Murphy’s Law was born at Edwards Air Force Base around 1949, during rocket-sled tests.' },
+  { tag: PM, icon: '📋', text: 'Scrum takes its name from rugby, after a 1986 paper by Takeuchi and Nonaka.' },
+  { tag: PM, icon: '📋', text: 'The ninety-ninety rule: the first 90% of the work takes 90% of the time. The last 10% takes the other 90%.' },
+  // Science
+  { tag: SCIENCE, icon: '🔬', text: 'Time runs a little faster at your head than at your feet. Atomic clocks can measure the difference.' },
+  { tag: SCIENCE, icon: '🔬', text: 'GPS satellites gain about 38 microseconds a day from relativity. Uncorrected, positions would drift kilometres daily.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Bananas are slightly radioactive, thanks to potassium-40.' },
+  { tag: SCIENCE, icon: '🔬', text: 'At its triple point, water boils and freezes at the same time.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Old church windows are thicker at the bottom because of how they were made, not because glass flows.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Tardigrades survived 10 days in open space in 2007.' },
+  { tag: SCIENCE, icon: '🔬', text: 'A day on Venus is longer than its year, and Venus spins backwards.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Octopuses have three hearts and blue blood.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Wombat poop is cube-shaped.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Lightning is about five times hotter than the surface of the Sun.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Saturn is less dense than water.' },
+  { tag: SCIENCE, icon: '🔬', text: 'Sunlight takes about 8 minutes to reach Earth, so you always see the Sun as it was.' },
+  // Code
+  { tag: CODE, icon: '💻', text: 'NASA lost the Mars Climate Orbiter in 1999 because one team worked in imperial units and another in metric.' },
+  { tag: CODE, icon: '💻', text: 'Ariane 5’s first flight in 1996 failed over a 64-bit number squeezed into 16 bits.' },
+  { tag: CODE, icon: '💻', text: 'The first logged computer bug was a real moth, taped into the Harvard Mark II logbook in 1947.' },
+  { tag: CODE, icon: '💻', text: 'JavaScript was written in about ten days in 1995.' },
+  { tag: CODE, icon: '💻', text: 'Python is named after Monty Python, not the snake.' },
+  { tag: CODE, icon: '💻', text: 'Git was started by Linus Torvalds in 2005, in a matter of days.' },
 ]
 
-/** A fun fact that changes every 20 seconds, or when the person asks for another. */
-export const fact = (t: Turn): string => {
+/** A fact that changes every 20 seconds, or when the person asks for another. */
+export const fact = (t: Turn): Fact => {
   const at = Math.floor(t.elapsedMs / 20_000) + t.factShift + t.startedAt
 
-  return FACTS[Math.abs(at) % FACTS.length] ?? ''
+  return FACTS[Math.abs(at) % FACTS.length] as Fact
 }
 
 /** The words after the spinner's own: the pet, the wait in tea, or the tally, in turn. */
@@ -199,5 +218,4 @@ export const emptyTurn = (): Turn => ({
   other: 0,
   now: '',
   factShift: 0,
-  feeds: 0,
 })

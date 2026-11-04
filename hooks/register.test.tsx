@@ -123,12 +123,16 @@ test('while Claude works, a pet hatches in the spinner and the pane counts the w
     const pane = await $.ui.mount({ ...PANE, surface })
     expect((await pane.find({ type: 'Text', text: /Claude is working/ }))?.text).toContain('0:36')
     expect((await pane.find({ type: 'Text', text: /1 read/ }))?.text).toContain('1 edited')
-    expect((await pane.find({ type: 'Text', text: /Now:/ }))?.text).toContain('Editing index.html')
-    await pane.press({ key: 'feed' })
-    // The feeds add up across both surfaces: one, then two.
-    expect((await pane.find({ type: 'Text', text: /Fed \d time/ }))?.text).toContain(
-      surface === 'terminal' ? 'Yum!' : 'Burp.',
-    )
+    expect((await pane.find({ type: 'Text', text: /▸/ }))?.text).toContain('Editing index.html')
+    // The game runs in its own Client and plays itself until someone takes over.
+    const game = JSON.stringify(await pane.drawn({ in: 'breakout' }))
+    expect(game).toContain('SCORE')
+    expect(game).toContain('Demo mode')
+    await pane.key({ key: 'return', in: 'breakout' })
+    expect(JSON.stringify(await pane.drawn({ in: 'breakout' }))).not.toContain('Demo mode')
+
+    expect((await pane.find({ type: 'Text', text: /Did you know/ }))?.text).toBeTruthy()
+    await pane.press({ key: 'fact' })
     await pane.unmount()
   }
 })

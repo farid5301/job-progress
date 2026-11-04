@@ -13,7 +13,10 @@ When Claude runs a test command or a render through the Bash or PowerShell tool,
 Waiting on Claude itself gets fun too:
 
 - **A pet hatches and grows the longer the turn runs:** 🥚 → 🐣 (20s) → 🐥 (1m) → 🐔 (3m) → 🦖 (7m) → 🐉 (15m). The spinner line takes turns showing the pet, the wait in everyday terms ("≈ about 3 cups of tea ☕") and what Claude has done so far (`📖 12 read · ✏ 4 edited · ⚡ 6 commands`).
-- **After 45 seconds the Progress pane opens a waiting card:** the pet walking toward its next form, what Claude is doing right now, a fun fact that changes every 20 seconds, buttons for **🥠 New fact** and **🍖 Feed the pet**, and today's total waiting time.
+- **After 45 seconds the Progress pane opens with three panels:**
+  - **Claude is working:** the pet walking toward its next form, the wait in everyday terms, what Claude has done so far, what it is doing right now, and today's total waiting.
+  - **🎮 Bug Breaker:** a Breakout game. Bounce the ball off your paddle to clear rows of Blockers, Bugs, Scope creep and Meetings. Move the paddle with the mouse or ← →, launch with a click or space. Each cleared wall is a new sprint and the ball speeds up. Until you touch it, it plays itself as a demo. Your best score is kept. Runs in the desktop app and the terminal (not in VS Code or on mobile).
+  - **💡 Did you know?:** a fact that changes every 20 seconds, about scheduling, project management, science or code, with an **Another fact →** button.
 - **A turn that ran for over 90 seconds ends with a toast**, so you know when to come back.
 - `/jobs fun off` turns all of this off, `/jobs fun on` brings it back.
 

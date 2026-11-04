@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { describeTool, emptyTurn, equivalent, spinnerText, stage, tally, untilNext, walk } from './waiting'
+import { describeTool, emptyTurn, equivalent, fact, spinnerText, stage, tally, untilNext, walk } from './waiting'
 
 test('the pet grows with the wait, and walks toward what it becomes next', () => {
   expect(stage(5_000).pet).toBe('🥚')
@@ -27,4 +27,12 @@ test('tool calls are sorted into kinds with a few words on each', () => {
   const t = { ...emptyTurn(), running: true, reads: 3, commands: 1 }
   expect(tally(t)).toBe('📖 3 read · ⚡ 1 command')
   expect(spinnerText({ ...t, elapsedMs: 0 })).toContain('🥚')
+})
+
+test('facts come with a topic and change on request', () => {
+  const t = emptyTurn()
+  const one = fact(t)
+
+  expect(['📅 Scheduling', '📋 Project management', '🔬 Science', '💻 Code']).toContain(one.tag)
+  expect(fact({ ...t, factShift: 1 }).text).not.toBe(one.text)
 })
